@@ -5,17 +5,30 @@ from django.db import models
 from core.text_utils import truncate_with_ellipsis
 from core.constants import CANT_ADD_FOLLOWING, FOLLOWING_VALIDATION
 
+# class Avatar(models.Model):
+#     image = models.ImageField(
+#         'Аватар', upload_to='avatars/', null=True, blank=True
+#     )
+
+#     class Meta:
+#         verbose_name = 'аватар'
+#         verbose_name_plural = 'Аватары'
+
 
 class FgUser(AbstractUser):
     """Расширяет абстрактную модель пользователя."""
 
     email = models.EmailField('Эл. почта', unique=True)
-    # is_subscribed = models.BooleanField('Подписка')  # Добавить через SerializerMethodField (Сериал: доп. настройки)
+    # first_name = models.CharField('Имя', max_length=150, blank=False)
+    # last_name = models.CharField('Фамилия', max_length=150, blank=False)
+    avatar = models.ImageField(
+        'Аватар', upload_to='avatars/', null=True, blank=True
+    )
 
     class Meta:
         verbose_name = 'пользователь'
         verbose_name_plural = 'Пользователи'
-        ordering = ('username',)
+        ordering = ('-date_joined',)
 
     def __str__(self) -> str:
         return truncate_with_ellipsis(self.username)
@@ -41,6 +54,7 @@ class Follow(models.Model):
     following = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
+        related_name='followers',
         verbose_name='Подписки',
     )
 

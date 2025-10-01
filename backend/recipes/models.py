@@ -14,12 +14,30 @@ class Ingredient(models.Model):
     name = models.TextField('Название ингридиента', unique=True)
     measurement_unit = models.TextField('Единица измерения')
 
+    class Meta:
+        verbose_name = 'ингридиент'
+        verbose_name_plural = 'Ингридиенты'
+        default_related_name = 'ingridients'
+        ordering = ('name',)
+
+    def __str__(self) -> str:
+        return truncate_with_ellipsis(self.name)
+
 
 class Tag(models.Model):
-    """Модель тэгов."""
+    """Модель тегов."""
 
     name = models.TextField('Название тега', unique=True)
     slug = models.SlugField('Слаг тега', unique=True)
+
+    class Meta:
+        verbose_name = 'тег'
+        verbose_name_plural = 'Теги'
+        default_related_name = 'tags'
+        ordering = ('name',)
+
+    def __str__(self) -> str:
+        return truncate_with_ellipsis(self.name)
 
 
 class Recipe(models.Model):
@@ -30,19 +48,23 @@ class Recipe(models.Model):
         on_delete=models.CASCADE,
         verbose_name='Автор публикации'
     )
-    name = models.TextField('Название')
-    image = models.ImageField('Картинка', blank=True, null=True)
-    text = models.TextField('Текстовое описание')
+    name = models.TextField('Название', blank=False, null=False)
+    image = models.ImageField('Картинка', blank=False, null=True)
+    text = models.TextField('Текстовое описание', blank=False, null=False)
     ingredients = models.ManyToManyField(
         Ingredient,
-        verbose_name='Список ингредиентов'
+        verbose_name='Список ингредиентов',
+        blank=False
     )
     tags = models.ManyToManyField(
         Tag,
-        verbose_name='Тег'
+        verbose_name='Тег',
+        blank=False
     )
-    cooking_time = models.IntegerField('Время приготовления (в минутах)')
+    cooking_time = models.SmallIntegerField('Время приготовления (в минутах)', blank=False)
     pub_date = models.DateTimeField('Дата публикации', auto_now_add=True)
+    # is_favorited = models.BooleanField('В избранном')
+    # is_in_shopping_cart = models.BooleanField('В списке покупок')
 
     class Meta:
         verbose_name = 'рецепт'
@@ -59,27 +81,30 @@ class Favorite(models.Model):
     Модель избранных рецептов пользователя.
 
     - user (ForeignKey): Пользователь, который добавляет рецпт в избранное
-    - favor (ForeignKey): Рецепт, который добавляют в избранное.
+    - recipe (ForeignKey): Рецепт, который добавляют в избранное.
     """
 
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
+        verbose_name='Пользователь',
         related_name='favorites',
-        verbose_name='Пользователь'
     )
-    favor = models.ForeignKey(
+    recipe = models.ForeignKey(
         Recipe,
         on_delete=models.CASCADE,
         verbose_name='Рецепт',
+        blank=True,
+        null=True
     )
 
     class Meta:
         verbose_name = 'избранное'
         verbose_name_plural = 'Избранные рецепты'
+        # default_related_name = 'favorites'
         constraints = [
             models.UniqueConstraint(
-                fields=('user', 'favor'),
+                fields=('user', 'recipe'),
                 name='recipe_is_already_added',
                 violation_error_message=CANT_ADD_FAVORITE
             )
@@ -87,5 +112,5 @@ class Favorite(models.Model):
 
     def __str__(self) -> str:
         return truncate_with_ellipsis(
-            f'{self.user.username}: {self.favor.name}'
+            f'{self.user.username}: {self.recipe.name}'
         )
