@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
+from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import render
 from djoser.serializers import UserSerializer
 from djoser.views import UserViewSet
-from rest_framework import generics, status
+from rest_framework import filters, generics, status
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -10,7 +11,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from .serializers import AvatarSerializer, IngredientSerializer, RecipeSerializer, TagSerializer, FgUserSerializer
+from .serializers import (
+    AvatarSerializer, RecipeSerializer, IngredientListSerializer,
+    TagSerializer, FgUserSerializer
+)
 from recipes.models import Favorite, Ingredient, Recipe, Tag
 from users.models import Follow
 
@@ -105,9 +109,12 @@ class IngredientViewSet(
     """ViewSet класса Ingredient."""
 
     queryset = Ingredient.objects.all()
-    serializer_class = IngredientSerializer
-    pagination_class = None
+    serializer_class = IngredientListSerializer
     permission_classes = (AllowAny,)
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
+    # pagination_class = None
+    filterset_fields = ('name',)
+    search_fields = ('^name',)
 
 
 class TagViewSet(
@@ -118,7 +125,7 @@ class TagViewSet(
 
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    pagination_class = None
+    # pagination_class = None
     permission_classes = (AllowAny,)
 
 
@@ -130,6 +137,13 @@ class RecipeViewSet(ModelViewSet):
     pagination_class = LimitOffsetPagination
     lookup_field = 'id'
     http_method_names = ('get', 'post', 'patch', 'delete',)
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
+    filterset_fields = ('name', 'author', 'tags')
+    search_fields = ('^name',)
+
+    def perform_create(self, serializer):
+        """Автоматически устанавливает пользователя при создании рецепта."""
+        serializer.save(author=self.request.user)
 
     @action(
         detail=True,

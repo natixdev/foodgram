@@ -6,7 +6,7 @@ from djoser.serializers import UserCreateSerializer, UserSerializer
 from rest_framework import serializers
 
 from core.constants import RESTRICTED_USERNAMES, USERNAME_IS_PROHIBITED
-from recipes.models import Ingredient, Recipe, Tag
+from recipes.models import Ingredient, IngredientRecipe, Favorite, Recipe, ShoppingCart, Tag
 from users.models import FgUser, Follow
 
 
@@ -83,27 +83,115 @@ class AvatarSerializer(UserSerializer):
         fields = ('avatar',)
 
 
-class IngredientSerializer(serializers.ModelSerializer):
-    """Сериализатор ингридиентов."""
+class TagSerializer(serializers.ModelSerializer):
+    """Сериализатор тегов."""
+
+    class Meta:
+        model = Tag
+        fields = '__all__'
+
+
+class IngredientListSerializer(serializers.ModelSerializer):
+    """Сериализатор ингредиентов."""
 
     class Meta:
         model = Ingredient
         fields = ('id', 'name', 'measurement_unit')
 
 
-class TagSerializer(serializers.ModelSerializer):
-    """Сериализатор тегов."""
+class IngredientInRecipeSerializer(serializers.ModelSerializer):
+    """Сериализатор ингредиентов."""
+
+    id = serializers.PrimaryKeyRelatedField(queryset=Ingredient.objects.all())
 
     class Meta:
-        model = Tag
-        fields = ('id', 'name', 'slug')
+        model = IngredientRecipe
+        fields = ('id', 'amount')
+
+
+class IngredientRecipeSerializer(serializers.ModelSerializer):
+    """Сериализатор ингредиентов."""
+
+    id = serializers.IntegerField(source='ingredient.id', read_only=True)
+    name = serializers.CharField(source='ingredient.name', read_only=True)
+    measurement_unit = serializers.CharField(
+        source='ingredient.measurement_unit',
+        read_only=True
+    )
+
+    class Meta:
+        model = IngredientRecipe
+        fields = ('id', 'name', 'measurement_unit', 'amount')
+
+    # def _get_object(self):
+# 
+    # def get_name(self, obj):
+    #     print('@@@@@@@@@@@@@@@@ self', self)
+    #     print('obj:', obj)
+    #     return obj.name
+
+    # def get_measurement_unit(self, obj):
+    #     return obj.measurement_unit
 
 
 class RecipeSerializer(serializers.ModelSerializer):
     """Сериализатор рецептов."""
 
+    is_favorited = serializers.SerializerMethodField()
+    is_in_shopping_cart = serializers.SerializerMethodField()
+    author = serializers.SlugRelatedField(
+        slug_field='username',
+        read_only=True,
+        default=serializers.CurrentUserDefault()
+    )
+    image = Base64ImageField()
+    ingredients = IngredientInRecipeSerializer(many=True, write_only=True)
+    tags = serializers.PrimaryKeyRelatedField(
+        queryset=Tag.objects.all(),
+        many=True
+    )
+
     class Meta:
         model = Recipe
         fields = (
-            'ingredients', 'tags', 'image', 'name', 'text', 'cooking_time'
+            'id', 'tags', 'author', 'ingredients', 'is_favorited',
+            'is_in_shopping_cart', 'name', 'image', 'text', 'cooking_time'
         )
+
+    def get_is_favorited(self, obj):
+        fg_user = self.context.get('request').user
+        return fg_user.is_authenticated and fg_user.favorites.filter(
+            recipe=obj
+        ).exists()
+
+    def get_is_in_shopping_cart(self, obj):
+        fg_user = self.context.get('request').user
+        return fg_user.is_authenticated and fg_user.shopping_cart.filter(
+            recipe=obj
+        ).exists()
+
+    def create(self, validated_data):
+        # работает
+        ingredients_data = validated_data.pop('ingredients')
+        tags_data = validated_data.pop('tags')
+
+        recipe = Recipe.objects.create(**validated_data)
+        recipe.tags.set(tags_data)
+
+        for ingredient_data in ingredients_data:
+            IngredientRecipe.objects.create(
+                ingredient=ingredient_data['id'],
+                recipe=recipe,
+                amount=ingredient_data['amount']
+            )
+        return recipe
+
+    def to_representation(self, instance):
+        print('1111111111111')
+        representation = super().to_representation(instance)
+        representation['tags'] = TagSerializer(
+            instance.tags.all(), many=True).data
+        print('22222222222', representation)
+        representation['ingredients'] = IngredientRecipeSerializer(
+            instance.ingredient_recipe.all(), many=True).data
+        return representation
