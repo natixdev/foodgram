@@ -48,7 +48,7 @@ class Recipe(models.Model):
         on_delete=models.CASCADE,
         verbose_name='Автор публикации'
     )
-    name = models.TextField('Название', blank=False, null=False)
+    name = models.CharField('Название', max_length=256, blank=False, null=False)
     image = models.ImageField('Картинка', upload_to='recipe_image/', blank=False, null=False)
     text = models.TextField('Текстовое описание', blank=False, null=False)
     ingredients = models.ManyToManyField(
@@ -63,7 +63,7 @@ class Recipe(models.Model):
         verbose_name='Тег',
         blank=False
     )
-    cooking_time = models.SmallIntegerField('Время приготовления (в минутах)', blank=False)
+    cooking_time = models.PositiveSmallIntegerField('Время приготовления (в минутах)', blank=False)
     pub_date = models.DateTimeField('Дата публикации', auto_now_add=True)
     # is_favorited = models.BooleanField('В избранном')
     # is_in_shopping_cart = models.BooleanField('В списке покупок')
@@ -87,6 +87,15 @@ class IngredientRecipe(models.Model):
 
     def __str__(self) -> str:
         return truncate_with_ellipsis(f'{self.ingredient} {self.recipe}')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('ingredient', 'recipe'),
+                name='ingredient_is_already_added',
+                violation_error_message='Вынести в константы'
+            )
+        ]
 
 
 class Favorite(models.Model):

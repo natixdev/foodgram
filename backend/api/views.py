@@ -6,7 +6,7 @@ from djoser.views import UserViewSet
 from rest_framework import filters, generics, status
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
@@ -20,6 +20,24 @@ from users.models import Follow
 
 
 User = get_user_model()
+
+
+# !!!!!!!!!!УБРАТЬ
+from rest_framework import permissions
+
+class IsAuthorOrReadOnly(permissions.BasePermission):
+    """
+    Разрешение на изменение только для автора.
+    Остальные могут только читать.
+    """
+    
+    def has_object_permission(self, request, view, obj):
+        # Read permissions are allowed to any request
+        if request.method in permissions.SAFE_METHODS:
+            return True
+            
+        # Write permissions are only allowed to the author
+        return obj.author == request.user
 
 
 class AvatarDetail(APIView):
@@ -139,7 +157,17 @@ class RecipeViewSet(ModelViewSet):
     http_method_names = ('get', 'post', 'patch', 'delete',)
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_fields = ('name', 'author', 'tags')
-    search_fields = ('^name',)
+    search_fields = ('^name', '^author')
+    # permission_classes = (IsAuthenticated, IsAuthorOrReadOnly)
+
+    def get_permissions(self):
+        if self.request.method in (
+            'PATCH',
+            'DELETE',
+        ):
+            return [IsAuthorOrReadOnly(),]
+        else:
+            return [IsAuthenticatedOrReadOnly(),]
 
     def perform_create(self, serializer):
         """Автоматически устанавливает пользователя при создании рецепта."""
@@ -147,12 +175,12 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        permission_classes=(IsAuthenticated,),
+        permission_classes=(AllowAny,),
         # serializer_class=LinkSerializer,
         methods=('get',),
         url_path='get-link'
     )
-    def get_link(self, request):
+    def get_link(self, request, id=None):
         """Получение короткой ссылки на рецепт."""
         # return Response(self.get_serializer(request.pk).data
         recipe = self.get_object()
