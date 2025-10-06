@@ -80,12 +80,20 @@ class FgUserViewSet(UserViewSet):
             return [AllowAny(),]
 
     def get_serializer_class(self):
+        print('1111111', self.action)
         if self.action == 'add_to_subscription':
+            print('222222222222')
             return FollowSerializer
         if self.action == 'create':
+            print('3333333333333333')
             return FgUserCreateSerializer
         if self.action == 'get_subscriptions_list':
+            print('444444444444444')
             return SubscribtionSerializer
+        if self.action == 'set_password' or 'reset_password':
+            print('555555555555555')
+            return super().get_serializer_class()
+        print('666666666')
         return FgUserSerializer
 
     @action(
