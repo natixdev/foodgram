@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from core.text_utils import truncate_with_ellipsis
-from core.constants import CANT_ADD_FOLLOWING, FOLLOWING_VALIDATION
+from core.constants import FOLLOWING_VALIDATION
+# from recipes.models import Recipe
 
 # class Avatar(models.Model):
 #     image = models.ImageField(
@@ -70,7 +72,6 @@ class Follow(models.Model):
             models.UniqueConstraint(
                 fields=('user', 'following'),
                 name='following_already_exists',
-                violation_error_message=CANT_ADD_FOLLOWING
             )
         ]
 
