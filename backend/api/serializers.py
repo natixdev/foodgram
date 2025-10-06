@@ -289,8 +289,17 @@ class SubscribtionSerializer(FgUserSerializer):
     class Meta(FgUserSerializer.Meta):
         fields = FgUserSerializer.Meta.fields + ('recipes_count', 'recipes')
 
-    def get_recipes(self, obj):
-        return RecipeBriefSerializer(obj.recipes.all(), many=True, context=self.context).data
+    def get_recipes(self, following):
+        recipes_limit = self.context.get('recipes_limit')
+        try:
+            recipes = following.recipes.all()[:int(recipes_limit)] if (
+                recipes_limit
+            ) else following.recipes.all()
+        except TypeError:
+            recipes = following.recipes.all()
+        return RecipeBriefSerializer(
+            recipes, many=True, context=self.context
+        ).data
 
     def get_recipes_count(self, obj):
         return len(obj.recipes.all())
