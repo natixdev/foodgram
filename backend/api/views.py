@@ -12,8 +12,9 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .serializers import (
-    AvatarSerializer, RecipeSerializer, IngredientListSerializer,
-    TagSerializer, FgUserSerializer
+    AvatarSerializer, FgUserSerializer, FgUserCreateSerializer,
+    FollowSerializer, IngredientListSerializer, RecipeSerializer, 
+    SubscribtionSerializer, TagSerializer
 )
 from recipes.models import Favorite, Ingredient, Recipe, Tag
 from users.models import Follow
@@ -25,17 +26,16 @@ User = get_user_model()
 # !!!!!!!!!!УБРАТЬ
 from rest_framework import permissions
 
+
 class IsAuthorOrReadOnly(permissions.BasePermission):
     """
     Разрешение на изменение только для автора.
     Остальные могут только читать.
     """
-    
     def has_object_permission(self, request, view, obj):
         # Read permissions are allowed to any request
         if request.method in permissions.SAFE_METHODS:
             return True
-            
         # Write permissions are only allowed to the author
         return obj.author == request.user
 
@@ -78,21 +78,31 @@ class FgUserViewSet(UserViewSet):
         else:
             return [AllowAny(),]
 
+    def get_serializer_class(self):
+        print('!!!!!!!!', self.action)
+        if self.action == 'add_to_subscription':
+            print('followser')
+            return FollowSerializer
+        if self.action == 'create':
+            print('post serializer')
+            return FgUserCreateSerializer
+        print('fguserser')
+        return FgUserSerializer
+
     @action(
         detail=False,
         methods=('get',),
-        url_path='subscriptions'
+        url_path='subscriptions',
+        pagination_class=LimitOffsetPagination
     )
     def get_subscriptions_list(self, request):
         """Возвращает список подписок пользователя."""
-        user = request.user
-        subscriptions = user.follows.all()
-        return Response(
-            {
-                'results': subscriptions
-            },
-            status=status.HTTP_200_OK
-        )
+        subscription_list = [
+            sub.following for sub in request.user.follows.all()
+        ]
+        return Response(self.get_serializer(
+            subscription_list, many=True, context={'request': request}
+        ).data)
 
     @action(
         detail=True,
@@ -101,16 +111,23 @@ class FgUserViewSet(UserViewSet):
     )
     def add_to_subscription(self, request, id=None):
         """."""
-        follow = self.get_object()
         user = self.request.user
-        # if user.favorites.filter(recipe=recipe).exists():
-        #     return Response(
-        #         {'errors': 'Рецепт уже в избранном.'},
-        #         status=status.HTTP_400_BAD_REQUEST
-        #     )
-
-        Follow.objects.create(user=user, following=follow)
-        return Response(f'созд', status=status.HTTP_201_CREATED)
+        following = self.get_object()
+        serializer = self.get_serializer(
+            data={
+                'user': user,
+                'following': following
+            },
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            print('here')
+            return Response(SubscribtionSerializer(
+                Follow.objects.create(
+                    user=user, following=following
+                ).following, context={'request': request}
+            ).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @add_to_subscription.mapping.delete  # Лучше один метод с ветвлением мб?
     def delete_subscription(self, request, id=None):
