@@ -348,8 +348,12 @@ class RecipeViewSet(ModelViewSet):
         print('3333333333333333', ingredients)
 
         response = HttpResponse(
-            self._generate_shopping_list(ingredients, recipes, request.user),
-            content_type='text/plain; charset=utf-8'
+            f'<pre style="font-family: monospace;">{
+                self._generate_shopping_list(
+                    ingredients, recipes, request.user
+                )
+            }</pre>',
+            content_type='text/plane; charset=utf-8'
         )
         response['Content-Disposition'] = (
             'attachment; filename="shopping_list.txt"'
@@ -360,42 +364,46 @@ class RecipeViewSet(ModelViewSet):
         """Создает дизайн списка покупок."""
 
         current_date = timezone.now().strftime('%d.%m.%Y %H:%M')
-        width = 64
-        border = '═' * width
-        line = '─' * width
-        list_title = '🛒 СПИСОК ПОКУПОК 🛒'
-        title_gap = (width - len(list_title)) // 2
-        space = ' '
-        WIDTH = 64
+
+        CREATED = '📅 Создан:'
+        END_TITLE = 'ПРИЯТНЫХ ПОКУПОК!'
+        PRODUCT = '   Товар '
+        TITLE = '🛒 СПИСОК ПОКУПОК 🛒'
+        TOTAL = '🥬 Всего ингредиентов:'
+        USER = '👤 Пользователь:'
+
+        WIDTH = 60
         BORDER = "═" * WIDTH
+        BORDERS = 2
+        inner_width = WIDTH - BORDERS
+        HEADING_PADDING = 45
         LINE = "─" * WIDTH
-        TITLE_PADDING = 21
-        CENTER_PADDING = 22
-        INDENT = 15
 
-        text = f'╔{border}╗\n'
-        text += f'{space * title_gap}{list_title}{space * title_gap}\n'
-        text += f'╚{border}╝\n\n'
+        text = f'╔{BORDER}╗\n'
+        text += f'{TITLE:^{inner_width}}\n'
+        text += f'╚{BORDER}╝\n\n'
 
-        text += f'👤 Пользователь: {user.get_full_name() or user.username}\n'
-        text += f'📅 Создан: {current_date}\n'
-        text += f'🥬 Всего ингредиентов: {len(ingredients)}\n\n'
+        text += f'{USER} {user.get_full_name() or user.username}\n'
+        text += f'{CREATED} {current_date}\n'
+        text += f'{TOTAL} {len(ingredients)}\n\n'
 
         # Шапка таблицы ингредиентов
-        text += f' Товар{' ' * 40}Кол-во\n'
-        text += f' {line}\n'
+        text += f'{PRODUCT}{'Кол-во':>{HEADING_PADDING}}\n'
+        text += f' {LINE}\n'
 
         for ingredient in ingredients:
             name = ingredient['ingredient__name']
             unit = ingredient['ingredient__measurement_unit']
             amount = ingredient['total_amount']
 
-            amount_str = f'{int(amount)}' if amount == int(amount) else f'{amount:.1f}'
+            amount_str = f'{int(amount)}' if amount == int(amount) else (
+                f'{amount:.1f}'
+            )
 
             checkbox = '☐'
 
             # Обрезаем длинные названия ингредиентов
-            max_name_length = 25
+            max_name_length = 30
             if len(name) > max_name_length:
                 display_name = name[:max_name_length-2] + '...'
             else:
@@ -415,11 +423,12 @@ class RecipeViewSet(ModelViewSet):
         text += ' ' + LINE + '\n'
         text += 'Отмечайте ☑ купленные товары\n'
         text += '\n'
+        text += '\n'
         text += f'╔{BORDER}╗\n'
-        text += ' ' * CENTER_PADDING + 'ПРИЯТНЫХ ПОКУПОК!' + ' ' * CENTER_PADDING + '\n'
+        text += f'{END_TITLE:^{inner_width}}\n'
         text += f'╚{BORDER}╝\n'
         text += '\n'
-        text += ' ' * CENTER_PADDING + '🍣🥢 Foodgram 2025\n'
-        text += ' ' * INDENT + 'Ваш помощник в мире рецептов\n'
-
+        text += f'{'🍣🥢 Foodgram 2025':^{inner_width}}\n'
+        text += f'{'Ваш помощник в мире рецептов':^{inner_width}}\n'
+        print(text)
         return text
