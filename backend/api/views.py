@@ -1,52 +1,38 @@
 from django.contrib.auth import get_user_model
-from django_filters.rest_framework import DjangoFilterBackend, FilterSet, ModelMultipleChoiceFilter, BooleanFilter
-from django.shortcuts import render
-from djoser.serializers import UserSerializer
+from django.db.models import Sum
+from django_filters.rest_framework import DjangoFilterBackend
+from django.http import HttpResponse
+from django.urls import reverse
+from django.utils import timezone
 from djoser.views import UserViewSet
-from rest_framework import filters, generics, status
+from rest_framework import filters, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import (
+    AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from .filters import RecipeFilter
+from .pagination import FgPagination
+from .permissions import IsAuthorOrReadOnly
 from .serializers import (
-    AddToFavorite, AvatarSerializer, FgUserSerializer, FgUserCreateSerializer,
+    AddToFavorite, AvatarSerializer, FgUserCreateSerializer, FgUserSerializer,
     FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
-from recipes.models import Favorite, Ingredient, IngredientRecipe, ShoppingCart, Recipe, Tag
+from core.constants import (
+    ALREADY_ADDED, NON_EXISTENT_FAV, NON_EXISTENT_SUB, NOT_ADDED
+)
+from recipes.models import (
+    Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
+)
 from users.models import Follow
-from .pagination import FgPagination
-
-from django.http import HttpResponse
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from io import BytesIO
-from django.db.models import Sum, F
-from django.utils import timezone
 
 
 User = get_user_model()
-
-
-# !!!!!!!!!!УБРАТЬ
-from rest_framework import permissions
-
-
-class IsAuthorOrReadOnly(permissions.BasePermission):
-    """
-    Разрешение на изменение только для автора.
-    Остальные могут только читать.
-    """
-    def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any request
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        # Write permissions are only allowed to the author
-        return obj.author == request.user
 
 
 class AvatarDetail(APIView):
@@ -70,7 +56,14 @@ class AvatarDetail(APIView):
 
 
 class FgUserViewSet(UserViewSet):
-    """."""
+    """
+    Сериализатор пользователя.
+
+    Создает пользователя,
+    отображает информацию о пользователе,
+    добавляет/удаляет подписку на пользователя,
+    возвращает список подписок пользователя.
+    """
 
     serializer_class = FgUserSerializer
     pagination_class = FgPagination
@@ -126,7 +119,7 @@ class FgUserViewSet(UserViewSet):
         url_path='subscribe'
     )
     def add_to_subscription(self, request, id=None):
-        """."""
+        """Реализует подписку на пользователя."""
         user = self.request.user
         following = self.get_object()
 
@@ -153,19 +146,16 @@ class FgUserViewSet(UserViewSet):
 
     @add_to_subscription.mapping.delete  # Лучше один метод с ветвлением мб?
     def delete_subscription(self, request, id=None):
-        """."""
+        """Удаляет подписку на пользователя."""
         delete_num, _ = self.request.user.follows.filter(
             following=self.get_object()).delete()
         if delete_num > 0:
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
-            raise ValidationError('Вы не подписаны на этого пользоавтеля в константу')
+            raise ValidationError(NON_EXISTENT_SUB)
 
 
-class IngredientViewSet(
-    # ModelViewSet
-    ReadOnlyModelViewSet
-):
+class IngredientViewSet(ReadOnlyModelViewSet):
     """ViewSet класса Ingredient."""
 
     queryset = Ingredient.objects.all()
@@ -177,45 +167,13 @@ class IngredientViewSet(
     search_fields = ('^name',)
 
 
-class TagViewSet(
-    # ModelViewSet
-    ReadOnlyModelViewSet
-):
+class TagViewSet(ReadOnlyModelViewSet):
     """ViewSet класса Tag."""
 
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
     pagination_class = None
     permission_classes = (AllowAny,)
-
-
-class RecipeFilter(FilterSet):  # вынести
-    """Фильтр для рецептов."""
-
-    tags = ModelMultipleChoiceFilter(
-        field_name='tags__slug',
-        to_field_name='slug',
-        queryset=Tag.objects.all(),
-        # conjoined=False
-    )
-    is_favorited = BooleanFilter(method='filter_is_favorited')
-    is_in_shopping_cart = BooleanFilter(
-        method='filter_is_in_shopping_cart'
-    )
-
-    class Meta:
-        model = Recipe
-        fields = ('tags', 'is_favorited', 'is_in_shopping_cart', 'author')
-
-    def filter_is_favorited(self, queryset, name, value):
-        if value and self.request.user.is_authenticated:
-            return queryset.filter(in_favorites__user=self.request.user)
-        return queryset
-
-    def filter_is_in_shopping_cart(self, queryset, name, value):
-        if value and self.request.user.is_authenticated:
-            return queryset.filter(in_shopping_cart__user=self.request.user)
-        return queryset
 
 
 class RecipeViewSet(ModelViewSet):
@@ -230,19 +188,17 @@ class RecipeViewSet(ModelViewSet):
     filterset_class = RecipeFilter
     filterset_fields = ('name', 'author', 'tags')
     search_fields = ('^name', '^author')
-    # permission_classes = (IsAuthenticated, IsAuthorOrReadOnly)
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset
-        # return queryset.with_favorited_and_shopping_cart(self.request.user)
 
     def get_permissions(self):
-        if self.action in ('delete_favorite', 'delete_from_shopping_cart', 'download_shopping_cart'):
+        if self.action in (
+            'delete_favorite',
+            'delete_from_shopping_cart',
+            'download_shopping_cart'
+        ):
             return (IsAuthenticated(),)
         elif self.request.method in (
-            'PATCH',
             'DELETE',
+            'PATCH',
         ):
             return (IsAuthorOrReadOnly(),)
         else:
@@ -254,19 +210,17 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        # permission_classes=(AllowAny,),
-        # serializer_class=LinkSerializer,
         methods=('get',),
         url_path='get-link'
     )
     def get_link(self, request, id=None):
         """Получение короткой ссылки на рецепт."""
-        # return Response(self.get_serializer(request.pk).data
         recipe = self.get_object()
-        return Response(
-            {'short-link': f'https://foodgram.example.org/api/recipes/{recipe.id}'}
-        )
-        # Добавить Exceptions и изменить доменное имя
+        return Response({
+            'short-link': request.build_absolute_uri(
+                reverse('recipes-detail', args=[recipe.id])
+            )
+        })
 
     @action(
         detail=True,
@@ -279,7 +233,7 @@ class RecipeViewSet(ModelViewSet):
         recipe = self.get_object()
         user = request.user
         if user.favorites.filter(recipe=recipe).exists():
-            raise ValidationError('Рецепт уже в избранном надо вынести в константу')
+            raise ValidationError(ALREADY_ADDED)
 
         Favorite.objects.create(user=user, recipe=recipe)
         return Response(
@@ -296,7 +250,7 @@ class RecipeViewSet(ModelViewSet):
         if delete_num > 0:
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
-            raise ValidationError('Рецепт не был добавлен в избранное в константу')
+            raise ValidationError(NON_EXISTENT_FAV)
 
     @action(
         detail=True,
@@ -309,7 +263,7 @@ class RecipeViewSet(ModelViewSet):
         recipe = self.get_object()
         user = request.user
         if user.shopping_cart.filter(recipe=recipe).exists():
-            raise ValidationError('Рецепт уже добавлен в список покупок надо вынести в константу')
+            raise ValidationError(ALREADY_ADDED)
 
         ShoppingCart.objects.create(user=user, recipe=recipe)
         return Response(
@@ -319,24 +273,22 @@ class RecipeViewSet(ModelViewSet):
 
     @add_to_shopping_cart.mapping.delete  # Лучше один метод с ветвлением мб?
     def delete_from_shopping_cart(self, request, id=None):
-        """Удаление рецепта из избранного."""
+        """Удаление рецепта из списка покупок."""
         delete_num, _ = request.user.favorites.filter(
             recipe=self.get_object()
         ).delete()
         if delete_num > 0:
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
-            raise ValidationError('Рецепт не был добавлен в список покупок в константу')
+            raise ValidationError(NOT_ADDED)
 
     @action(detail=False, methods=['get'])
     def download_shopping_cart(self, request):
         """Скачивание списка покупок в формате TXT."""
         shopping_cart = self.get_queryset()
-        print('111111111111', shopping_cart)
         recipes = Recipe.objects.filter(
             id__in=shopping_cart.values('id')
         )
-        print('222222222222', recipes)
         ingredients = IngredientRecipe.objects.filter(
             recipe__in=recipes
         ).values(
@@ -345,15 +297,12 @@ class RecipeViewSet(ModelViewSet):
         ).annotate(
             total_amount=Sum('amount')
         ).order_by('ingredient__name')
-        print('3333333333333333', ingredients)
 
         response = HttpResponse(
-            f'<pre style="font-family: monospace;">{
-                self._generate_shopping_list(
-                    ingredients, recipes, request.user
-                )
-            }</pre>',
-            content_type='text/plane; charset=utf-8'
+            self._generate_shopping_list(
+                ingredients, recipes, request.user
+            ),
+            content_type='text/plain; charset=utf-8'
         )
         response['Content-Disposition'] = (
             'attachment; filename="shopping_list.txt"'
@@ -362,8 +311,7 @@ class RecipeViewSet(ModelViewSet):
 
     def _generate_shopping_list(self, ingredients, recipes, user):
         """Создает дизайн списка покупок."""
-
-        current_date = timezone.now().strftime('%d.%m.%Y %H:%M')
+        current_date = timezone.localtime()
 
         CREATED = '📅 Создан:'
         END_TITLE = 'ПРИЯТНЫХ ПОКУПОК!'
@@ -372,19 +320,17 @@ class RecipeViewSet(ModelViewSet):
         TOTAL = '🥬 Всего ингредиентов:'
         USER = '👤 Пользователь:'
 
-        WIDTH = 60
+        WIDTH = 50
         BORDER = "═" * WIDTH
-        BORDERS = 2
-        inner_width = WIDTH - BORDERS
         HEADING_PADDING = 45
         LINE = "─" * WIDTH
 
         text = f'╔{BORDER}╗\n'
-        text += f'{TITLE:^{inner_width}}\n'
+        text += f'{TITLE:^{WIDTH}}\n'
         text += f'╚{BORDER}╝\n\n'
 
         text += f'{USER} {user.get_full_name() or user.username}\n'
-        text += f'{CREATED} {current_date}\n'
+        text += f'{CREATED} {current_date.strftime('%d.%m.%Y %H:%M')}\n'
         text += f'{TOTAL} {len(ingredients)}\n\n'
 
         # Шапка таблицы ингредиентов
@@ -425,10 +371,9 @@ class RecipeViewSet(ModelViewSet):
         text += '\n'
         text += '\n'
         text += f'╔{BORDER}╗\n'
-        text += f'{END_TITLE:^{inner_width}}\n'
+        text += f'{END_TITLE:^{WIDTH}}\n'
         text += f'╚{BORDER}╝\n'
         text += '\n'
-        text += f'{'🍣🥢 Foodgram 2025':^{inner_width}}\n'
-        text += f'{'Ваш помощник в мире рецептов':^{inner_width}}\n'
-        print(text)
+        text += f'{'🍣🥢 Foodgram 2025':^{WIDTH}}\n'
+        text += f'{'Ваш помощник в мире рецептов':^{WIDTH}}\n'
         return text
