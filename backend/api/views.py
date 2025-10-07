@@ -17,7 +17,7 @@ from .serializers import (
     FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
-from recipes.models import Favorite, Ingredient, Recipe, Tag
+from recipes.models import Favorite, Ingredient, ShoppingCart, Recipe, Tag
 from users.models import Follow
 from .pagination import FgPagination
 
@@ -234,7 +234,7 @@ class RecipeViewSet(ModelViewSet):
         # return queryset.with_favorited_and_shopping_cart(self.request.user)
 
     def get_permissions(self):
-        if self.action in ('delete_favorite',):
+        if self.action in ('delete_favorite', 'delete_from_shopping_cart'):
             return (IsAuthenticated(),)
         elif self.request.method in (
             'PATCH',
@@ -266,7 +266,6 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        permission_classes=(IsAuthorOrReadOnly,),
         serializer_class=AddToFavorite,
         methods=('post',),
         url_path='favorite'
@@ -294,3 +293,33 @@ class RecipeViewSet(ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
             raise ValidationError('Рецепт не был добавлен в избранное в константу')
+
+    @action(
+        detail=True,
+        serializer_class=AddToFavorite,
+        methods=('post',),
+        url_path='shopping_cart'
+    )
+    def add_to_shopping_cart(self, request, id=None):
+        """Добавление рецепта в список покупок."""
+        recipe = self.get_object()
+        user = request.user
+        if user.shopping_cart.filter(recipe=recipe).exists():
+            raise ValidationError('Рецепт уже добавлен в список покупок надо вынести в константу')
+
+        ShoppingCart.objects.create(user=user, recipe=recipe)
+        return Response(
+            self.get_serializer(recipe).data,
+            status=status.HTTP_201_CREATED
+        )
+
+    @add_to_shopping_cart.mapping.delete  # Лучше один метод с ветвлением мб?
+    def delete_from_shopping_cart(self, request, id=None):
+        """Удаление рецепта из избранного."""
+        delete_num, _ = request.user.favorites.filter(
+            recipe=self.get_object()
+        ).delete()
+        if delete_num > 0:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            raise ValidationError('Рецепт не был добавлен в список покупок в константу')
