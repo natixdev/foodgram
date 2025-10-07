@@ -282,6 +282,13 @@ class RecipeSerializer(RecipeBriefSerializer):
         return representation
 
 
+class AddToFavorite(serializers.ModelSerializer):
+
+    class Meta:
+        model = Recipe
+        fields = ('id', 'name', 'image', 'cooking_time')
+
+
 class SubscribtionSerializer(FgUserSerializer):
     recipes = serializers.SerializerMethodField()
     recipes_count = serializers.SerializerMethodField()

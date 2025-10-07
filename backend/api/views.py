@@ -5,6 +5,7 @@ from djoser.serializers import UserSerializer
 from djoser.views import UserViewSet
 from rest_framework import filters, generics, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
@@ -12,8 +13,8 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .serializers import (
-    AvatarSerializer, FgUserSerializer, FgUserCreateSerializer,
-    FollowSerializer, IngredientListSerializer, RecipeSerializer, 
+    AddToFavorite, AvatarSerializer, FgUserSerializer, FgUserCreateSerializer,
+    FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
 from recipes.models import Favorite, Ingredient, Recipe, Tag
@@ -75,25 +76,19 @@ class FgUserViewSet(UserViewSet):
             'delete_subscription',
             'me',
         ):
-            return [IsAuthenticated(),]
+            return (IsAuthenticated(),)
         else:
-            return [AllowAny(),]
+            return (AllowAny(),)
 
     def get_serializer_class(self):
-        print('1111111', self.action)
         if self.action == 'add_to_subscription':
-            print('222222222222')
             return FollowSerializer
         if self.action == 'create':
-            print('3333333333333333')
             return FgUserCreateSerializer
         if self.action == 'get_subscriptions_list':
-            print('444444444444444')
             return SubscribtionSerializer
         if self.action == 'set_password' or 'reset_password':
-            print('555555555555555')
             return super().get_serializer_class()
-        print('666666666')
         return FgUserSerializer
 
     @action(
@@ -152,9 +147,12 @@ class FgUserViewSet(UserViewSet):
     @add_to_subscription.mapping.delete  # Лучше один метод с ветвлением мб?
     def delete_subscription(self, request, id=None):
         """."""
-        follow = self.get_object()
-        self.request.user.follows.filter(following=follow).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        delete_num, _ = self.request.user.follows.filter(
+            following=self.get_object()).delete()
+        if delete_num > 0:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            raise ValidationError('Вы не подписаны на этого пользоавтеля в константу')
 
 
 class IngredientViewSet(
@@ -222,25 +220,29 @@ class RecipeViewSet(ModelViewSet):
     serializer_class = RecipeSerializer
     pagination_class = FgPagination
     lookup_field = 'id'
-    http_method_names = ('get', 'post', 'patch', 'delete',)
+    http_method_names = ('get', 'post', 'patch', 'delete', 'retrieve')
     filter_backends = (DjangoFilterBackend, filters.SearchFilter)
     filterset_class = RecipeFilter
     filterset_fields = ('name', 'author', 'tags')
     search_fields = ('^name', '^author')
     # permission_classes = (IsAuthenticated, IsAuthorOrReadOnly)
 
-    # def get_queryset(self):
-    #     queryset = super().get_queryset()
-    #     return queryset.with_favorited_and_shopping_cart(self.request.user)
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        print('#############', queryset)
+        return queryset
+        # return queryset.with_favorited_and_shopping_cart(self.request.user)
 
     def get_permissions(self):
-        if self.request.method in (
+        if self.action in ('delete_favorite',):
+            return (IsAuthenticated(),)
+        elif self.request.method in (
             'PATCH',
             'DELETE',
         ):
-            return [IsAuthorOrReadOnly(),]
+            return (IsAuthorOrReadOnly(),)
         else:
-            return [IsAuthenticatedOrReadOnly(),]
+            return (IsAuthenticatedOrReadOnly(),)
 
     def perform_create(self, serializer):
         """Автоматически устанавливает пользователя при создании рецепта."""
@@ -248,7 +250,7 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        permission_classes=(AllowAny,),
+        # permission_classes=(AllowAny,),
         # serializer_class=LinkSerializer,
         methods=('get',),
         url_path='get-link'
@@ -264,8 +266,8 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        permission_classes=(IsAuthenticated,),
-        # serializer_class=FavoriteSerializer,
+        permission_classes=(IsAuthorOrReadOnly,),
+        serializer_class=AddToFavorite,
         methods=('post',),
         url_path='favorite'
     )
@@ -273,15 +275,12 @@ class RecipeViewSet(ModelViewSet):
         """Добавление рецепта в избранное."""
         recipe = self.get_object()
         user = request.user
-        # if user.favorites.filter(recipe=recipe).exists():
-        #     return Response(
-        #         {'errors': 'Рецепт уже в избранном.'},
-        #         status=status.HTTP_400_BAD_REQUEST
-        #     )
+        if user.favorites.filter(recipe=recipe).exists():
+            raise ValidationError('Рецепт уже в избранном надо вынести в константу')
 
         Favorite.objects.create(user=user, recipe=recipe)
         return Response(
-            {'message': 'Рецепт добавлен в избранное.'},
+            self.get_serializer(recipe).data,
             status=status.HTTP_201_CREATED
         )
 
@@ -289,17 +288,9 @@ class RecipeViewSet(ModelViewSet):
     def delete_favorite(self, request, id=None):
         """Удаление рецепта из избранного."""
         recipe = self.get_object()
-        self.request.user.favorites.filter(recipe=recipe).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-        # elif request.method == 'DELETE':
-        #     # Удаляем через related_name
-        #     deleted_count, _ = user.favorite_recipes.filter(recipe=recipe).delete()
-            
-        #     if deleted_count > 0:
-        #         return Response(status=status.HTTP_204_NO_CONTENT)
-        #     else:
-        #         return Response(
-        #             {'errors': 'Рецепта нет в избранном.'},
-        #             status=status.HTTP_400_BAD_REQUEST
-        #         )
+        user = request.user
+        delete_num, _ = user.favorites.filter(recipe=recipe).delete()
+        if delete_num > 0:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            raise ValidationError('Рецепт не был добавлен в избранное в константу')
