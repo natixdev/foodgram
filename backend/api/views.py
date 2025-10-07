@@ -17,9 +17,16 @@ from .serializers import (
     FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
-from recipes.models import Favorite, Ingredient, ShoppingCart, Recipe, Tag
+from recipes.models import Favorite, Ingredient, IngredientRecipe, ShoppingCart, Recipe, Tag
 from users.models import Follow
 from .pagination import FgPagination
+
+from django.http import HttpResponse
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from io import BytesIO
+from django.db.models import Sum, F
+from django.utils import timezone
 
 
 User = get_user_model()
@@ -182,7 +189,9 @@ class TagViewSet(
     permission_classes = (AllowAny,)
 
 
-class RecipeFilter(FilterSet):
+class RecipeFilter(FilterSet):  # вынести
+    """Фильтр для рецептов."""
+
     tags = ModelMultipleChoiceFilter(
         field_name='tags__slug',
         to_field_name='slug',
@@ -200,17 +209,13 @@ class RecipeFilter(FilterSet):
 
     def filter_is_favorited(self, queryset, name, value):
         if value and self.request.user.is_authenticated:
-            return queryset.filter(favorites__user=self.request.user)
+            return queryset.filter(in_favorites__user=self.request.user)
         return queryset
 
     def filter_is_in_shopping_cart(self, queryset, name, value):
         if value and self.request.user.is_authenticated:
-            return queryset.filter(shopping_carts__user=self.request.user)
+            return queryset.filter(in_shopping_cart__user=self.request.user)
         return queryset
-
-    # class Meta:
-    #     model = Recipe
-    #     fields = ['tags', 'author']
 
 
 class RecipeViewSet(ModelViewSet):
@@ -229,12 +234,11 @@ class RecipeViewSet(ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        print('#############', queryset)
         return queryset
         # return queryset.with_favorited_and_shopping_cart(self.request.user)
 
     def get_permissions(self):
-        if self.action in ('delete_favorite', 'delete_from_shopping_cart'):
+        if self.action in ('delete_favorite', 'delete_from_shopping_cart', 'download_shopping_cart'):
             return (IsAuthenticated(),)
         elif self.request.method in (
             'PATCH',
@@ -323,3 +327,99 @@ class RecipeViewSet(ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
             raise ValidationError('Рецепт не был добавлен в список покупок в константу')
+
+    @action(detail=False, methods=['get'])
+    def download_shopping_cart(self, request):
+        """Скачивание списка покупок в формате TXT."""
+        shopping_cart = self.get_queryset()
+        print('111111111111', shopping_cart)
+        recipes = Recipe.objects.filter(
+            id__in=shopping_cart.values('id')
+        )
+        print('222222222222', recipes)
+        ingredients = IngredientRecipe.objects.filter(
+            recipe__in=recipes
+        ).values(
+            'ingredient__name',
+            'ingredient__measurement_unit'
+        ).annotate(
+            total_amount=Sum('amount')
+        ).order_by('ingredient__name')
+        print('3333333333333333', ingredients)
+
+        response = HttpResponse(
+            self._generate_shopping_list(ingredients, recipes, request.user),
+            content_type='text/plain; charset=utf-8'
+        )
+        response['Content-Disposition'] = (
+            'attachment; filename="shopping_list.txt"'
+        )
+        return response
+
+    def _generate_shopping_list(self, ingredients, recipes, user):
+        """Создает дизайн списка покупок."""
+
+        current_date = timezone.now().strftime('%d.%m.%Y %H:%M')
+        width = 64
+        border = '═' * width
+        line = '─' * width
+        list_title = '🛒 СПИСОК ПОКУПОК 🛒'
+        title_gap = (width - len(list_title)) // 2
+        space = ' '
+        WIDTH = 64
+        BORDER = "═" * WIDTH
+        LINE = "─" * WIDTH
+        TITLE_PADDING = 21
+        CENTER_PADDING = 22
+        INDENT = 15
+
+        text = f'╔{border}╗\n'
+        text += f'{space * title_gap}{list_title}{space * title_gap}\n'
+        text += f'╚{border}╝\n\n'
+
+        text += f'👤 Пользователь: {user.get_full_name() or user.username}\n'
+        text += f'📅 Создан: {current_date}\n'
+        text += f'🥬 Всего ингредиентов: {len(ingredients)}\n\n'
+
+        # Шапка таблицы ингредиентов
+        text += f' Товар{' ' * 40}Кол-во\n'
+        text += f' {line}\n'
+
+        for ingredient in ingredients:
+            name = ingredient['ingredient__name']
+            unit = ingredient['ingredient__measurement_unit']
+            amount = ingredient['total_amount']
+
+            amount_str = f'{int(amount)}' if amount == int(amount) else f'{amount:.1f}'
+
+            checkbox = '☐'
+
+            # Обрезаем длинные названия ингредиентов
+            max_name_length = 25
+            if len(name) > max_name_length:
+                display_name = name[:max_name_length-2] + '...'
+            else:
+                display_name = name
+
+            # Форматируем название с единицей измерения в скобках
+            name_with_unit = f'{checkbox} {display_name} ({unit})'
+            quantity = f'{amount_str}'
+
+            # Вычисляем пробелы для выравнивания
+            total_width = 50
+            name_width = len(name_with_unit)
+            spaces_needed = total_width - name_width
+
+            text += f'{name_with_unit}{' ' * spaces_needed}{quantity}\n'
+
+        text += ' ' + LINE + '\n'
+        text += 'Отмечайте ☑ купленные товары\n'
+        text += '\n'
+        text += f'╔{BORDER}╗\n'
+        text += ' ' * CENTER_PADDING + 'ПРИЯТНЫХ ПОКУПОК!' + ' ' * CENTER_PADDING + '\n'
+        text += f'╚{BORDER}╝\n'
+        text += '\n'
+        text += ' ' * CENTER_PADDING + '🍣🥢 Foodgram 2025\n'
+        text += ' ' * INDENT + 'Ваш помощник в мире рецептов\n'
+
+        return text
