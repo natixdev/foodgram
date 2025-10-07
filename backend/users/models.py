@@ -5,24 +5,12 @@ from django.db import models
 
 from core.text_utils import truncate_with_ellipsis
 from core.constants import FOLLOWING_VALIDATION
-# from recipes.models import Recipe
-
-# class Avatar(models.Model):
-#     image = models.ImageField(
-#         'Аватар', upload_to='avatars/', null=True, blank=True
-#     )
-
-#     class Meta:
-#         verbose_name = 'аватар'
-#         verbose_name_plural = 'Аватары'
 
 
 class FgUser(AbstractUser):
     """Расширяет абстрактную модель пользователя."""
 
     email = models.EmailField('Эл. почта', unique=True)
-    # first_name = models.CharField('Имя', max_length=150, blank=False)
-    # last_name = models.CharField('Фамилия', max_length=150, blank=False)
     avatar = models.ImageField(
         'Аватар', upload_to='avatars/', null=True, blank=True
     )

@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import models
 
-from core.constants import CANT_ADD_FAVORITE
+from core.constants import ALREADY_ADDED, ALREADY_ADDED_INGREDIENT
 from core.text_utils import truncate_with_ellipsis
 
 
@@ -12,7 +12,7 @@ class Ingredient(models.Model):
     """Модель ингридиентов."""
 
     name = models.TextField('Название ингридиента', unique=True)
-    measurement_unit = models.CharField('Единица измерения', max_length=20)  # Вынести в константы
+    measurement_unit = models.CharField('Единица измерения', max_length=20)
 
     class Meta:
         verbose_name = 'ингридиент'
@@ -48,9 +48,9 @@ class Recipe(models.Model):
         on_delete=models.CASCADE,
         verbose_name='Автор публикации'
     )
-    name = models.CharField('Название', max_length=256, blank=False, null=False)
-    image = models.ImageField('Картинка', upload_to='recipe_image/', blank=False, null=False)
-    text = models.TextField('Текстовое описание', blank=False, null=False)
+    name = models.CharField('Название', max_length=256)
+    image = models.ImageField('Картинка', upload_to='recipe_image/')
+    text = models.TextField('Текстовое описание')
     ingredients = models.ManyToManyField(
         Ingredient,
         through='IngredientRecipe',
@@ -63,10 +63,8 @@ class Recipe(models.Model):
         verbose_name='Тег',
         blank=False
     )
-    cooking_time = models.PositiveSmallIntegerField('Время приготовления (в минутах)', blank=False)
+    cooking_time = models.PositiveSmallIntegerField('Время приготовления')
     pub_date = models.DateTimeField('Дата публикации', auto_now_add=True)
-    # is_favorited = models.BooleanField('В избранном')
-    # is_in_shopping_cart = models.BooleanField('В списке покупок')
 
     class Meta:
         verbose_name = 'рецепт'
@@ -79,10 +77,18 @@ class Recipe(models.Model):
 
 
 class IngredientRecipe(models.Model):
-    ingredient = models.ForeignKey(Ingredient, on_delete=models.CASCADE)
+    """Промежуточная таблица для добавления количества ингредиента в рецепт."""
+
+    ingredient = models.ForeignKey(
+        Ingredient,
+        on_delete=models.CASCADE,
+        verbose_name='Ингредиент')
     amount = models.PositiveSmallIntegerField('Количество')
     recipe = models.ForeignKey(
-        Recipe, on_delete=models.CASCADE, related_name='ingredient_recipe'
+        Recipe,
+        on_delete=models.CASCADE,
+        related_name='ingredient_recipe',
+        verbose_name='Рецепт'
     )
 
     def __str__(self) -> str:
@@ -93,7 +99,7 @@ class IngredientRecipe(models.Model):
             models.UniqueConstraint(
                 fields=('ingredient', 'recipe'),
                 name='ingredient_is_already_added',
-                violation_error_message='Вынести в константы'
+                violation_error_message=ALREADY_ADDED_INGREDIENT
             )
         ]
 
@@ -116,6 +122,7 @@ class Favorite(models.Model):
         Recipe,
         on_delete=models.CASCADE,
         verbose_name='Рецепт',
+        related_name='in_favorites',
         blank=True,
         null=True
     )
@@ -123,12 +130,11 @@ class Favorite(models.Model):
     class Meta:
         verbose_name = 'избранное'
         verbose_name_plural = 'Избранные рецепты'
-        # default_related_name = 'favorites'
         constraints = [
             models.UniqueConstraint(
                 fields=('user', 'recipe'),
                 name='recipe_is_already_added',
-                violation_error_message=CANT_ADD_FAVORITE
+                violation_error_message=ALREADY_ADDED
             )
         ]
 
@@ -163,12 +169,12 @@ class ShoppingCart(models.Model):
 
     class Meta:
         verbose_name = 'список покупок'
-        verbose_name_plural = 'Cписrb покупок'
+        verbose_name_plural = 'Cписок покупок'
         constraints = [
             models.UniqueConstraint(
                 fields=('user', 'recipe'),
                 name='recipe_is_already_added_to shopping_cart',
-                violation_error_message=CANT_ADD_FAVORITE
+                violation_error_message=ALREADY_ADDED
             )
         ]
 

@@ -5,8 +5,12 @@ from django.core.files.base import ContentFile
 from djoser.serializers import UserCreateSerializer, UserSerializer
 from rest_framework import serializers
 
-from core.constants import CANT_ADD_FOLLOWING, FOLLOWING_VALIDATION, RESTRICTED_USERNAMES, USERNAME_IS_PROHIBITED
-from recipes.models import Ingredient, IngredientRecipe, Favorite, Recipe, ShoppingCart, Tag
+from core.constants import (
+    AMOUNT_MIN_VALUE, CANT_ADD_FOLLOWING, CANT_BE_EMPTY,
+    COOKING_TIME_MIN_VALUE, FOLLOWING_VALIDATION, PROHIBITED_VALUE,
+    REPEATED, RESTRICTED_USERNAMES, USERNAME_IS_PROHIBITED
+)
+from recipes.models import Ingredient, IngredientRecipe, Recipe, Tag
 from users.models import FgUser, Follow
 
 
@@ -14,7 +18,7 @@ User = get_user_model()
 
 
 class FgUserCreateSerializer(UserCreateSerializer):
-    """."""
+    """Сериализатор создания пользователя."""
 
     first_name = serializers.CharField(required=True, max_length=150)
     last_name = serializers.CharField(required=True, max_length=150)
@@ -27,19 +31,13 @@ class FgUserCreateSerializer(UserCreateSerializer):
 
 
 class Base64ImageField(serializers.ImageField):
-    def to_internal_value(self, data):
-        # Если полученный объект строка, и эта строка 
-        # начинается с 'data:image'...
-        if isinstance(data, str) and data.startswith('data:image'):
-            # ...начинаем декодировать изображение из base64.
-            # Сначала нужно разделить строку на части.
-            format, imgstr = data.split(';base64,')
-            # И извлечь расширение файла.
-            ext = format.split('/')[-1]
-            # Затем декодировать сами данные и поместить результат в файл,
-            # которому дать название по шаблону.
-            data = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
+    """Декодирует картинку и сохраняет ее как файл."""
 
+    def to_internal_value(self, data):
+        if isinstance(data, str) and data.startswith('data:image'):
+            format, imgstr = data.split(';base64,')
+            ext = format.split('/')[-1]
+            data = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
         return super().to_internal_value(data)
 
 
@@ -55,13 +53,15 @@ class FgUserSerializer(UserSerializer):
             'is_subscribed', 'avatar'
         )
 
-    def get_is_subscribed(self, obj):
+    def get_is_subscribed(self, user):
+        """Получает значение для флага is_subscribed."""
         fg_user = self.context.get('request').user
         return fg_user.is_authenticated and Follow.objects.filter(
-            user=fg_user, following=obj
+            user=fg_user, following=user
         ).exists()
 
     def validate_username(self, username):
+        """Проверка имени пользователя на допустимость имени."""
         if username.lower() in RESTRICTED_USERNAMES:
             raise serializers.ValidationError(
                 USERNAME_IS_PROHIBITED.format(username=username)
@@ -70,14 +70,17 @@ class FgUserSerializer(UserSerializer):
 
 
 class FgUserWithRecipesSerializer(FgUserSerializer):
-    """."""
+    """Сериализатор пользователя с авторскими рецептами."""
+
     recipes = serializers.SerializerMethodField()
 
     class Meta(FgUserSerializer.Meta):
         fields = FgUserSerializer.Meta.fields + ('recipes',)
 
-    def get_recipes(self, obj):
-        return RecipeBriefSerializer(obj.recipes.all(), many=True, context=self.context).data
+    def get_recipes(self, user):
+        return RecipeBriefSerializer(
+            user.recipes.all(), many=True, context=self.context
+        ).data
 
 
 class AvatarSerializer(UserSerializer):
@@ -125,7 +128,6 @@ class FollowSerializer(serializers.ModelSerializer):
         return following
 
 
-
 class TagSerializer(serializers.ModelSerializer):
     """Сериализатор тегов."""
 
@@ -168,7 +170,7 @@ class IngredientRecipeSerializer(serializers.ModelSerializer):
 
 
 class RecipeBriefSerializer(serializers.ModelSerializer):
-    """Сериализатор рецептов."""
+    """Сериализатор рецептов краткий."""
 
     image = Base64ImageField()
 
@@ -196,45 +198,52 @@ class RecipeSerializer(RecipeBriefSerializer):
         )
 
     def get_is_favorited(self, obj):
+        """Получает значение для флага is_favorited."""
         fg_user = self.context.get('request').user
         return fg_user.is_authenticated and fg_user.favorites.filter(
             recipe=obj
         ).exists()
 
     def get_is_in_shopping_cart(self, obj):
+        """Получает значение для флага is_in_shopping_cart."""
         fg_user = self.context.get('request').user
         return fg_user.is_authenticated and fg_user.shopping_cart.filter(
             recipe=obj
         ).exists()
 
     def validate_cooking_time(self, minutes):
-        if minutes < 1:
-            raise serializers.ValidationError('Не может быть меньше 1')
+        """Проверяет, что введенное время приготовления не меньше MIN_VALUE."""
+        if minutes < COOKING_TIME_MIN_VALUE:
+            raise serializers.ValidationError(PROHIBITED_VALUE)
         return minutes
 
     def validate_ingredients(self, ingredients):
+        """Проверяет количество и состав ингредиентов."""
         if not ingredients:
-            raise serializers.ValidationError('Не может быть пустым')
+            raise serializers.ValidationError(CANT_BE_EMPTY)
 
-        if not all(ingredient['amount'] >= 1 for ingredient in ingredients): # ЕДИНИЦУ ЗАНЕСТИ В КОНСТАНТЫ
-            raise serializers.ValidationError('Не может быть меньше 1')
+        if not all(ingredient['amount'] >= AMOUNT_MIN_VALUE for ingredient in (
+            ingredients
+        )):
+            raise serializers.ValidationError(PROHIBITED_VALUE)
 
         ingredients_id = [ingredient['id'].id for ingredient in ingredients]
         if len(ingredients_id) != len(set(ingredients_id)):
-            raise serializers.ValidationError('Не должны повторяться')
+            raise serializers.ValidationError(REPEATED)
 
         return ingredients
 
     def validate_tags(self, tags):
+        """Проверяет добавляемые теги (не должны повторяться, не пусто)."""
         if not tags:
-            raise serializers.ValidationError('Не может быть пустым')
+            raise serializers.ValidationError(CANT_BE_EMPTY)
         tags_id = [tag for tag in tags]
         if len(tags_id) != len(set(tags_id)):
-            raise serializers.ValidationError('Не должны повторяться')
+            raise serializers.ValidationError(REPEATED)
         return tags
 
     def create(self, validated_data):
-        # работает
+        """Добавляет рецепт в базу данных"""
         ingredients_data = validated_data.pop('ingredients', None)
         tags_data = validated_data.pop('tags', None)
 
@@ -250,6 +259,7 @@ class RecipeSerializer(RecipeBriefSerializer):
         return recipe
 
     def update(self, instance, validated_data):
+        """Обновляет рецепт в базе данных."""
         ingredients_data = validated_data.pop('ingredients', None)
         tags_data = validated_data.pop('tags', None)
 
@@ -274,6 +284,7 @@ class RecipeSerializer(RecipeBriefSerializer):
         return instance
 
     def to_representation(self, instance):
+        """Добавляет информацию о тегах и ингредиентах в рецепте."""
         representation = super().to_representation(instance)
         representation['tags'] = TagSerializer(
             instance.tags.all(), many=True).data
@@ -282,15 +293,36 @@ class RecipeSerializer(RecipeBriefSerializer):
         return representation
 
 
+class AddToFavorite(serializers.ModelSerializer):
+    """Сериализатор добавления рецепта в избранное."""
+
+    class Meta:
+        model = Recipe
+        fields = ('id', 'name', 'image', 'cooking_time')
+
+
 class SubscribtionSerializer(FgUserSerializer):
+    """Сериализатор подписок пользователей."""
+
     recipes = serializers.SerializerMethodField()
     recipes_count = serializers.SerializerMethodField()
 
     class Meta(FgUserSerializer.Meta):
         fields = FgUserSerializer.Meta.fields + ('recipes_count', 'recipes')
 
-    def get_recipes(self, obj):
-        return RecipeBriefSerializer(obj.recipes.all(), many=True, context=self.context).data
+    def get_recipes(self, following):
+        """Ограничивает количество выводимых рецептов, если recipes_limit."""
+        recipes_limit = self.context.get('recipes_limit')
+        try:
+            recipes = following.recipes.all()[:int(recipes_limit)] if (
+                recipes_limit
+            ) else following.recipes.all()
+        except TypeError:
+            recipes = following.recipes.all()
+        return RecipeBriefSerializer(
+            recipes, many=True, context=self.context
+        ).data
 
-    def get_recipes_count(self, obj):
-        return len(obj.recipes.all())
+    def get_recipes_count(self, user):
+        """Подсчитывает количество рецептов пользователя."""
+        return len(user.recipes.all())
