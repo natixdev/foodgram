@@ -351,7 +351,7 @@ class RecipeViewSet(ModelViewSet):
             # Обрезаем длинные названия ингредиентов
             max_name_length = 30
             if len(name) > max_name_length:
-                display_name = name[:max_name_length-2] + '...'
+                display_name = name[:max_name_length - 2] + '...'
             else:
                 display_name = name
 

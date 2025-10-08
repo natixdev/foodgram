@@ -32,4 +32,5 @@ class FollowAdmin(ImportExportModelAdmin):
 
     list_display = ('user', 'following')
 
+
 admin.site.unregister(Group)
