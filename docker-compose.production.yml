@@ -1,0 +1,39 @@
+volumes:
+  pg_data:
+  static:
+  media:
+
+services:
+  # Контенер БД:
+  db:
+    image: postgres:13
+    env_file: .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+  # Контейнер с бэкендом:
+  backend:
+    image: natixy/foodgram_backend
+    env_file: .env
+    volumes:
+      - static:/backend_static
+      - media:/app/media
+    depends_on:
+      - db
+  # Контейнер с фронтендом:
+  frontend:
+    image: natixy/foodgram_frontend
+    command: cp -r /app/build/. /static/
+    volumes:
+      - static:/static
+  # Контенер gateway:
+  gateway:
+    image: natixy/foodgram_gateway
+    env_file: .env
+    ports:
+      - 9080:80
+    volumes:
+      - static:/static
+      - media:/app/media
+    depends_on:
+      - backend
+      - frontend
