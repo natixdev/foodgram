@@ -375,8 +375,8 @@ class RecipeViewSet(ModelViewSet):
         text += f'{END_TITLE:^{WIDTH}}\n'
         text += f'╚{BORDER}╝\n'
         text += '\n'
-        text += f'{'Foodgram 2025':^{WIDTH}}\n'
-        text += f'{'Ваш помощник в мире рецептов':^{WIDTH}}\n'
+        text += f'{"Foodgram 2025":^{WIDTH}}\n'
+        text += f'{"Ваш помощник в мире рецептов":^{WIDTH}}\n'
         return text
 
 
