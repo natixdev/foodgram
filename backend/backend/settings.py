@@ -15,7 +15,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', get_random_secret_key())
 
 DEBUG = os.getenv('DEBUG', 'False')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost, 127.0.0.1').split(', ')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost, 127.0.0.1', 'foodgram.myftp.biz').split(', ')
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in os.getenv(
