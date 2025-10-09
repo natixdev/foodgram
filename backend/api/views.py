@@ -324,12 +324,13 @@ class RecipeViewSet(ModelViewSet):
         USER = '👤 Пользователь:'
 
         WIDTH = 50
+        SCALE_WIDTH = 62
         BORDER = "═" * WIDTH
         HEADING_PADDING = 45
         LINE = "─" * WIDTH
 
         text = f'╔{BORDER}╗\n'
-        text += f'{TITLE:^{WIDTH}}\n'
+        text += f'{TITLE:^{SCALE_WIDTH}}\n'
         text += f'╚{BORDER}╝\n\n'
 
         text += f'{USER} {user.get_full_name() or user.username}\n'
@@ -374,11 +375,11 @@ class RecipeViewSet(ModelViewSet):
         text += '\n'
         text += '\n'
         text += f'╔{BORDER}╗\n'
-        text += f'{END_TITLE:^{WIDTH}}\n'
+        text += f'{END_TITLE:^{SCALE_WIDTH}}\n'
         text += f'╚{BORDER}╝\n'
         text += '\n'
-        text += f'{"Foodgram 2025":^{WIDTH}}\n'
-        text += f'{"Ваш помощник в мире рецептов":^{WIDTH}}\n'
+        text += f'{"Foodgram 2025":^{SCALE_WIDTH}}\n'
+        text += f'{"Ваш помощник в мире рецептов":^{SCALE_WIDTH}}\n'
         return text
 
 
