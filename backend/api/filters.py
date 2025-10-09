@@ -1,8 +1,8 @@
 from django_filters.rest_framework import (
-    BooleanFilter, FilterSet, ModelMultipleChoiceFilter
+    BooleanFilter, CharFilter, FilterSet, ModelMultipleChoiceFilter
 )
 
-from recipes.models import Recipe, Tag
+from recipes.models import Ingredient, Recipe, Tag
 
 
 class RecipeFilter(FilterSet):
@@ -33,3 +33,28 @@ class RecipeFilter(FilterSet):
         if value and self.request.user.is_authenticated:
             return queryset.filter(in_shopping_cart__user=self.request.user)
         return queryset
+
+
+class IngredientFilter(FilterSet):
+    """Фильтр для ингредиентов."""
+
+    name = CharFilter(
+        field_name='name',
+        method='filter_name',
+        lookup_expr='istartswith',
+    )
+
+    class Meta:
+        model = Ingredient
+        fields = ('name',)
+
+    def filter_name(self, queryset, _name, value):
+        """Фильтрация по названию ингредиента (нечувствительная к регистру)."""
+        if not value:
+            return queryset
+
+        normalized_value = value.strip()
+        if not normalized_value:
+            return queryset
+
+        return queryset.filter(name__istartswith=normalized_value)

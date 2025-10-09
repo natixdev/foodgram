@@ -1,10 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Sum
-from django_filters.rest_framework import DjangoFilterBackend
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
 from djoser.views import UserViewSet
 from rest_framework import filters, status
 from rest_framework.decorators import action
@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from .filters import RecipeFilter
+from .filters import IngredientFilter, RecipeFilter
 from .pagination import FgPagination
 from .permissions import IsAuthorOrReadOnly
 from .serializers import (
@@ -162,7 +162,9 @@ class IngredientViewSet(ReadOnlyModelViewSet):
     queryset = Ingredient.objects.all()
     serializer_class = IngredientListSerializer
     permission_classes = (AllowAny,)
-    filter_backends = (DjangoFilterBackend, filters.SearchFilter)
+    filter_backends = (
+        DjangoFilterBackend, filters.SearchFilter, IngredientFilter
+    )
     pagination_class = None
     filterset_fields = ('name',)
     search_fields = ('^name',)
