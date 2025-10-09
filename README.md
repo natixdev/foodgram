@@ -132,7 +132,7 @@ sudo touch .env
 sudo nano .env
 ```
 
-3. Создайте файл docker-compose.priduction.yml и скопируйте в него содержимое файла docker-compose.priduction.yml:
+3. Создайте файл docker-compose.production.yml и скопируйте в него содержимое файла docker-compose.production.yml:
 ```bash
 sudo touch docker-compose.production.yml
 sudo nano docker-compose.production.yml
