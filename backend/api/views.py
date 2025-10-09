@@ -335,7 +335,7 @@ class RecipeViewSet(ModelViewSet):
         text += f'{TOTAL} {len(ingredients)}\n\n'
 
         # Шапка таблицы ингредиентов
-        text += f'{PRODUCT}{'Кол-во':>{HEADING_PADDING}}\n'
+        text += f'{PRODUCT}{"Кол-во":>{HEADING_PADDING}}\n'
         text += f' {LINE}\n'
 
         for ingredient in ingredients:
