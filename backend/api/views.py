@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
 from djoser.views import UserViewSet
@@ -218,7 +219,7 @@ class RecipeViewSet(ModelViewSet):
         recipe = self.get_object()
         return Response({
             'short-link': request.build_absolute_uri(
-                reverse('recipes-detail', args=[recipe.id])
+                reverse('short-link', args=[recipe.id])
             )
         })
 
@@ -330,7 +331,7 @@ class RecipeViewSet(ModelViewSet):
         text += f'╚{BORDER}╝\n\n'
 
         text += f'{USER} {user.get_full_name() or user.username}\n'
-        text += f'{CREATED} {current_date.strftime('%d.%m.%Y %H:%M')}\n'
+        text += f'{CREATED} {current_date.strftime("%d.%m.%Y %H:%M")}\n'
         text += f'{TOTAL} {len(ingredients)}\n\n'
 
         # Шапка таблицы ингредиентов
@@ -377,3 +378,9 @@ class RecipeViewSet(ModelViewSet):
         text += f'{'🍣🥢 Foodgram 2025':^{WIDTH}}\n'
         text += f'{'Ваш помощник в мире рецептов':^{WIDTH}}\n'
         return text
+
+
+def short_link_redirect(request, pk):
+    """Редирект по короткой ссылке."""
+    get_object_or_404(Recipe, pk=pk)
+    return redirect(f'/recipes/{pk}')
