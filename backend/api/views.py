@@ -365,7 +365,7 @@ class RecipeViewSet(ModelViewSet):
             name_width = len(name_with_unit)
             spaces_needed = total_width - name_width
 
-            text += f'{name_with_unit}{' ' * spaces_needed}{quantity}\n'
+            text += f'{name_with_unit}{" " * spaces_needed}{quantity}\n'
 
         text += ' ' + LINE + '\n'
         text += 'Отмечайте ☑ купленные товары\n'
