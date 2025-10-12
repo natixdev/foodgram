@@ -1,8 +1,8 @@
 from rest_framework import permissions
 
 
-class IsAuthorOrReadOnly(permissions.BasePermission):
-    """Custom permission to only allow author of an object to edit it."""
+class AuthorOrAuthenticatedOrReadOnly(permissions.IsAuthenticatedOrReadOnly):
+    """Разрешает доступ автору, зарегистрированному или только чтение."""
 
     def has_object_permission(self, request, view, recipe):
         return (

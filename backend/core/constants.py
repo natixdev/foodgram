@@ -15,7 +15,7 @@ COOKING_TIME_MIN_VALUE = 1
 # Константы ошибок
 ALREADY_ADDED = 'Этот рецепт уже добавлен'
 ALREADY_ADDED_INGREDIENT = 'Этот ингредиент уже добавлен'
-CANT_ADD_FOLLOWING = 'Этот пользователь уже добавлен.'
+CANT_ADD_FOLLOWING = 'Вы уже подписаны на этого пользователя.'
 CANT_BE_EMPTY = 'Обязательное поле.'
 FOLLOWING_VALIDATION = 'Нельзя подписаться на самого себя!'
 NOT_FOUND = 'Страница не найдена.'

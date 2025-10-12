@@ -177,21 +177,13 @@ REST_FRAMEWORK = {
 
 DJOSER = {
     'HIDE_USERS': False,
-    'LOGIN_FIELD': 'email',
-    # 'PERMISSIONS': {
-    #     'user': ('rest_framework.permissions.AllowAny',),
-    #     'user_list': ('rest_framework.permissions.AllowAny',),
-    #     'user_detail': ('rest_framework.permissions.AllowAny',),
-    #     'user_delete': ('rest_framework.permissions.IsAuthenticated',),
-    # },
     'SERIALIZERS': {
-        'user_create': 'api.serializers.FgUserCreateSerializer',
         'user': 'api.serializers.FgUserSerializer',
         'current_user': 'api.serializers.FgUserSerializer',
     },
 }
 
 AUTHENTICATION_BACKENDS = [
-    "djoser.auth_backends.LoginFieldBackend",
+    'djoser.auth_backends.LoginFieldBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]

@@ -18,19 +18,16 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from .filters import IngredientFilter, RecipeFilter
 from .pagination import FgPagination
-from .permissions import IsAuthorOrReadOnly
+from .permissions import AuthorOrAuthenticatedOrReadOnly
 from .serializers import (
-    AddToFavorite, AvatarSerializer, FgUserCreateSerializer, FgUserSerializer,
+    AddToFavorite, AvatarSerializer, FgUserSerializer,
     FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
-from core.constants import (
-    ALREADY_ADDED, NON_EXISTENT_FAV, NON_EXISTENT_SUB, NOT_ADDED
-)
+from core.constants import ALREADY_ADDED, NON_EXISTENT_FAV, NOT_ADDED
 from recipes.models import (
     Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
 )
-from users.models import Follow
 
 
 User = get_user_model()
@@ -44,10 +41,9 @@ class AvatarDetail(APIView):
 
     def put(self, request):
         serializer = AvatarSerializer(request.user, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request):
         self.request.user.avatar.delete(save=True)
@@ -71,21 +67,18 @@ class FgUserViewSet(UserViewSet):
     lookup_field = 'id'
 
     def get_permissions(self):
-        if self.action in (
+        if self.action in {
             'get_subscriptions_list',
             'add_to_subscription',
             'delete_subscription',
             'me',
-        ):
+        }:
             return (IsAuthenticated(),)
-        else:
-            return (AllowAny(),)
+        return (AllowAny(),)
 
     def get_serializer_class(self):
-        if self.action == 'add_to_subscription':
+        if self.action in {'add_to_subscription', 'delete_subscription'}:
             return FollowSerializer
-        if self.action == 'create':
-            return FgUserCreateSerializer
         if self.action == 'get_subscriptions_list':
             return SubscribtionSerializer
         if self.action == 'set_password' or 'reset_password':
@@ -94,7 +87,6 @@ class FgUserViewSet(UserViewSet):
 
     @action(
         detail=False,
-        methods=('get',),
         url_path='subscriptions',
     )
     def get_subscriptions_list(self, request):
@@ -105,14 +97,18 @@ class FgUserViewSet(UserViewSet):
         page = self.paginate_queryset(subscription_list)
         if page:
             return self.get_paginated_response(
-                self.get_serializer(page, many=True, context={
-                    'request': request,
-                    'recipes_limit': request.GET.get('recipes_limit')
-                }).data
+                self.get_serializer(page, many=True).data
             )
         return Response(self.get_serializer(
             subscription_list, many=True
         ).data)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['recipes_limit'] = self.request.query_params.get(
+            'recipes_limit'
+        )
+        return context
 
     @action(
         detail=True,
@@ -121,39 +117,41 @@ class FgUserViewSet(UserViewSet):
     )
     def add_to_subscription(self, request, id=None):
         """Реализует подписку на пользователя."""
-        user = self.request.user
-        following = self.get_object()
+        context = self.get_serializer_context()
+        context.update({
+            'user': self.request.user,
+            'following': get_object_or_404(User, id=self.kwargs.get('id'))
+        })
+        serializer = self.get_serializer(data={}, context=context)
+        serializer.is_valid(raise_exception=True)
+        follow = serializer.save()
 
-        serializer = self.get_serializer(
-            data={
-                'user': user,
-                'following': following
-            },
-            context={
-                'request': request
-            }
+        response_serializer = SubscribtionSerializer(
+            follow.following,
+            context=self.get_serializer_context()
+        )
+        return Response(
+            response_serializer.data,
+            status=status.HTTP_201_CREATED
         )
 
-        if serializer.is_valid():
-            return Response(SubscribtionSerializer(
-                Follow.objects.create(
-                    user=user, following=following
-                ).following, context={
-                    'request': request,
-                    'recipes_limit': request.GET.get('recipes_limit')
-                }
-            ).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @add_to_subscription.mapping.delete  # Лучше один метод с ветвлением мб?
+    @add_to_subscription.mapping.delete
     def delete_subscription(self, request, id=None):
         """Удаляет подписку на пользователя."""
-        delete_num, _ = self.request.user.follows.filter(
-            following=self.get_object()).delete()
-        if delete_num > 0:
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        else:
-            raise ValidationError(NON_EXISTENT_SUB)
+        serializer = self.get_serializer(
+            data={}, context=self.get_context_data()
+        )
+        serializer.validate_delete()
+        self.request.user.follows.filter(following=self.get_object()).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def get_context_data(self, **kwargs) -> dict[str, any]:
+        context = self.get_serializer_context()
+        context.update({
+            'user': self.request.user,
+            'following': get_object_or_404(User, id=self.kwargs.get('id'))
+        })
+        return context
 
 
 class IngredientViewSet(ReadOnlyModelViewSet):
@@ -161,7 +159,6 @@ class IngredientViewSet(ReadOnlyModelViewSet):
 
     queryset = Ingredient.objects.all()
     serializer_class = IngredientListSerializer
-    permission_classes = (AllowAny,)
     filter_backends = (
         DjangoFilterBackend, filters.SearchFilter
     )
@@ -176,7 +173,6 @@ class TagViewSet(ReadOnlyModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
     pagination_class = None
-    permission_classes = (AllowAny,)
 
 
 class RecipeViewSet(ModelViewSet):
@@ -193,19 +189,18 @@ class RecipeViewSet(ModelViewSet):
     search_fields = ('^name', '^author')
 
     def get_permissions(self):
-        if self.action in (
+        if self.action in {
             'delete_favorite',
             'delete_from_shopping_cart',
             'download_shopping_cart'
-        ):
+        }:
             return (IsAuthenticated(),)
-        elif self.request.method in (
+        if self.request.method in {
             'DELETE',
             'PATCH',
-        ):
-            return (IsAuthorOrReadOnly(),)
-        else:
-            return (IsAuthenticatedOrReadOnly(),)
+        }:
+            return (AuthorOrAuthenticatedOrReadOnly(),)
+        return (IsAuthenticatedOrReadOnly(),)
 
     def perform_create(self, serializer):
         """Автоматически устанавливает пользователя при создании рецепта."""
@@ -213,7 +208,6 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        methods=('get',),
         url_path='get-link'
     )
     def get_link(self, request, id=None):
@@ -221,7 +215,7 @@ class RecipeViewSet(ModelViewSet):
         recipe = self.get_object()
         return Response({
             'short-link': request.build_absolute_uri(
-                reverse('short-link', args=[recipe.id])
+                reverse('short-link', args=(recipe.id,))
             )
         })
 
@@ -325,16 +319,17 @@ class RecipeViewSet(ModelViewSet):
 
         WIDTH = 50
         SCALE_WIDTH = 62
-        BORDER = "═" * WIDTH
+        BORDER = '═' * WIDTH
         HEADING_PADDING = 45
-        LINE = "─" * WIDTH
+        LINE = '─' * WIDTH
+        DATE = current_date.strftime("%d.%m.%Y %H:%M")
 
         text = f'╔{BORDER}╗\n'
         text += f'{TITLE:^{SCALE_WIDTH}}\n'
         text += f'╚{BORDER}╝\n\n'
 
         text += f'{USER} {user.get_full_name() or user.username}\n'
-        text += f'{CREATED} {current_date.strftime("%d.%m.%Y %H:%M")}\n'
+        text += f'{CREATED} {DATE}\n'
         text += f'{TOTAL} {len(ingredients)}\n\n'
 
         # Шапка таблицы ингредиентов
@@ -342,9 +337,9 @@ class RecipeViewSet(ModelViewSet):
         text += f' {LINE}\n'
 
         for ingredient in ingredients:
-            name = ingredient['ingredient__name']
-            unit = ingredient['ingredient__measurement_unit']
-            amount = ingredient['total_amount']
+            name = ingredient.get('ingredient__name')
+            unit = ingredient.get('ingredient__measurement_unit')
+            amount = ingredient.get('total_amount')
 
             amount_str = f'{int(amount)}' if amount == int(amount) else (
                 f'{amount:.1f}'
@@ -354,14 +349,13 @@ class RecipeViewSet(ModelViewSet):
 
             # Обрезаем длинные названия ингредиентов
             max_name_length = 30
-            if len(name) > max_name_length:
-                display_name = name[:max_name_length - 2] + '...'
-            else:
-                display_name = name
+            display_name = name[:max_name_length - 2] + '...' if (
+                len(name) > max_name_length
+            ) else name
 
             # Форматируем название с единицей измерения в скобках
             name_with_unit = f'{checkbox} {display_name} ({unit})'
-            quantity = f'{amount_str}'
+            quantity = amount_str
 
             # Вычисляем пробелы для выравнивания
             total_width = 50
@@ -370,7 +364,7 @@ class RecipeViewSet(ModelViewSet):
 
             text += f'{name_with_unit}{" " * spaces_needed}{quantity}\n'
 
-        text += ' ' + LINE + '\n'
+        text += f' {LINE}\n'
         text += 'Отмечайте ☑ купленные товары\n'
         text += '\n'
         text += '\n'
@@ -386,4 +380,4 @@ class RecipeViewSet(ModelViewSet):
 def short_link_redirect(request, pk):
     """Редирект по короткой ссылке."""
     get_object_or_404(Recipe, pk=pk)
-    return redirect(f'/recipes/{pk}')
+    return redirect(reverse('recipes-detail', kwargs={'pk': pk}))

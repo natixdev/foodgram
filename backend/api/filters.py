@@ -22,15 +22,15 @@ class RecipeFilter(FilterSet):
         model = Recipe
         fields = ('tags', 'is_favorited', 'is_in_shopping_cart', 'author')
 
-    def filter_is_favorited(self, queryset, name, value):
+    def filter_is_favorited(self, queryset, name, is_favorited):
         """Дополнительная фильтрация, если установлен флаг is_favorited."""
-        if value and self.request.user.is_authenticated:
+        if is_favorited and self.request.user.is_authenticated:
             return queryset.filter(in_favorites__user=self.request.user)
         return queryset
 
-    def filter_is_in_shopping_cart(self, queryset, name, value):
+    def filter_is_in_shopping_cart(self, queryset, name, is_in_shopping_cart):
         """Доп. фильтрация, если установлен флаг is_in_shopping_cart."""
-        if value and self.request.user.is_authenticated:
+        if is_in_shopping_cart and self.request.user.is_authenticated:
             return queryset.filter(in_shopping_cart__user=self.request.user)
         return queryset
 
@@ -39,7 +39,6 @@ class IngredientFilter(FilterSet):
     """Фильтр для ингредиентов."""
 
     name = CharFilter(
-        field_name='name',
         method='filter_name',
         lookup_expr='istartswith',
     )

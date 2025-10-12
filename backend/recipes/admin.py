@@ -4,16 +4,11 @@ from django.db.models import Count
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 
-from .models import Favorite, Ingredient, Recipe, ShoppingCart, Tag
+from .models import (
+    Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
+)
 
 User = get_user_model()
-
-
-class IngredientsResource(resources.ModelResource):
-    """Ресурс для загрузки в модель Ingredients."""
-
-    class Meta:
-        model = Ingredient
 
 
 class FavoriteInline(admin.TabularInline):
@@ -23,6 +18,13 @@ class FavoriteInline(admin.TabularInline):
     extra = 0
     readonly_fields = ('user',)
     can_delete = False
+
+
+class IngredientsResource(resources.ModelResource):
+    """Ресурс для загрузки в модель Ingredients."""
+
+    class Meta:
+        model = Ingredient
 
 
 @admin.register(Ingredient)
@@ -45,6 +47,14 @@ class TagAdmin(ImportExportModelAdmin):
     prepopulated_fields = {'slug': ('name',)}
 
 
+class RecipeIngredientInline(admin.TabularInline):
+    """Inline ингредиентов в рецепте."""
+
+    model = IngredientRecipe
+    extra = 1
+    autocomplete_fields = ('ingredient',)
+
+
 @admin.register(Recipe)
 class RecipeAdmin(ImportExportModelAdmin):
     """Административный интерфейс для управления рецептами."""
@@ -57,14 +67,15 @@ class RecipeAdmin(ImportExportModelAdmin):
     list_filter = ('tags',)
     readonly_fields = ('favorites_count_display',)
     filter_horizontal = ('tags',)
+    inlines = (RecipeIngredientInline,)
 
     @admin.display(description='В избранном', ordering='favorites_count')
-    def favorites_count(self, obj):
-        return getattr(obj, 'favorites_count', 0)
+    def favorites_count(self, recipe):
+        return getattr(recipe, 'favorites_count', 0)
 
     @admin.display(description='Общее число добавлений в избранное')
-    def favorites_count_display(self, obj):
-        return obj.favorites.count()
+    def favorites_count_display(self, recipe):
+        return recipe.favorites.count()
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

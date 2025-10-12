@@ -2,43 +2,30 @@ import base64
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from djoser.serializers import UserCreateSerializer, UserSerializer
+from djoser.serializers import UserSerializer
 from rest_framework import serializers
 
 from core.constants import (
     AMOUNT_MIN_VALUE, CANT_ADD_FOLLOWING, CANT_BE_EMPTY,
-    COOKING_TIME_MIN_VALUE, FOLLOWING_VALIDATION, PROHIBITED_VALUE,
-    REPEATED, RESTRICTED_USERNAMES, USERNAME_IS_PROHIBITED
+    COOKING_TIME_MIN_VALUE, FOLLOWING_VALIDATION, NON_EXISTENT_SUB,
+    PROHIBITED_VALUE, REPEATED
 )
 from recipes.models import Ingredient, IngredientRecipe, Recipe, Tag
-from users.models import FgUser, Follow
+from users.models import Follow
 
 
 User = get_user_model()
 
 
-class FgUserCreateSerializer(UserCreateSerializer):
-    """Сериализатор создания пользователя."""
-
-    first_name = serializers.CharField(required=True, max_length=150)
-    last_name = serializers.CharField(required=True, max_length=150)
-
-    class Meta(UserCreateSerializer.Meta):
-        model = FgUser
-        fields = (
-            'email', 'id', 'username', 'first_name', 'last_name', 'password'
-        )
-
-
 class Base64ImageField(serializers.ImageField):
     """Декодирует картинку и сохраняет ее как файл."""
 
-    def to_internal_value(self, data):
-        if isinstance(data, str) and data.startswith('data:image'):
-            format, imgstr = data.split(';base64,')
+    def to_internal_value(self, image):
+        if isinstance(image, str) and image.startswith('data:image'):
+            format, imgstr = image.split(';base64,')
             ext = format.split('/')[-1]
-            data = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
-        return super().to_internal_value(data)
+            image = ContentFile(base64.b64decode(imgstr), name=f'temp.{ext}')
+        return super().to_internal_value(image)
 
 
 class FgUserSerializer(UserSerializer):
@@ -47,26 +34,18 @@ class FgUserSerializer(UserSerializer):
     is_subscribed = serializers.SerializerMethodField()
 
     class Meta(UserSerializer.Meta):
-        model = FgUser
+        model = User
         fields = (
             'id', 'username', 'first_name', 'last_name', 'email',
             'is_subscribed', 'avatar'
         )
 
     def get_is_subscribed(self, user):
-        """Получает значение для флага is_subscribed."""
+        """Получает значение для флага is_subscribed (fg_user на user)."""
         fg_user = self.context.get('request').user
-        return fg_user.is_authenticated and Follow.objects.filter(
-            user=fg_user, following=user
+        return fg_user.is_authenticated and fg_user.follows.filter(
+            following=user
         ).exists()
-
-    def validate_username(self, username):
-        """Проверка имени пользователя на допустимость имени."""
-        if username.lower() in RESTRICTED_USERNAMES:
-            raise serializers.ValidationError(
-                USERNAME_IS_PROHIBITED.format(username=username)
-            )
-        return super().validate(username)
 
 
 class FgUserWithRecipesSerializer(FgUserSerializer):
@@ -95,37 +74,47 @@ class AvatarSerializer(UserSerializer):
 
 class FollowSerializer(serializers.ModelSerializer):
     """
-    Сериализатор для подписок (модель Follow).
+    Сериализатор для создания записи в БД (модель Follow).
 
-    - user: username подписчика (автоматически)
+    - user: username подписчика
     - following: username пользователя, на которого подписываются
     """
 
     user = serializers.SlugRelatedField(
         slug_field='username',
-        read_only=True,
-        default=FgUserSerializer()
+        read_only=True
     )
     following = serializers.SlugRelatedField(
         slug_field='username',
-        queryset=User.objects.all()
+        read_only=True
     )
+    delete_num = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Follow
-        fields = ('user', 'following')
+        fields = ('user', 'following', 'delete_num')
 
     def validate(self, attrs):
-        """Проверяет, что пользователь не пытается подписаться на себя."""
-        following = attrs.get('following')
-        user = self.initial_data['user']
+        """Проверяет нет ли дублирования подписки и не подписка на себя."""
+        user = self.context.get('user')
+        following = self.context.get('following')
+        if Follow.objects.filter(user=user, following=following).exists():
+            raise serializers.ValidationError(CANT_ADD_FOLLOWING)
         if following == user:
             raise serializers.ValidationError(FOLLOWING_VALIDATION)
-        if Follow.objects.filter(
-            user=user, following=following
-        ).exists():
-            raise serializers.ValidationError(CANT_ADD_FOLLOWING)
-        return following
+        return attrs
+
+    def create(self, validated_data):
+        return Follow.objects.create(
+            user=self.context['user'],
+            following=self.context['following']
+        )
+
+    def validate_delete(self):
+        user = self.context['user']
+        following = self.context['following']
+        if not user.follows.filter(following=following).exists():
+            raise serializers.ValidationError(NON_EXISTENT_SUB)
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -152,6 +141,11 @@ class IngredientInRecipeSerializer(serializers.ModelSerializer):
     class Meta:
         model = IngredientRecipe
         fields = ('id', 'amount')
+
+    def validate_amount(self, amount):
+        if amount < AMOUNT_MIN_VALUE:
+            raise serializers.ValidationError(PROHIBITED_VALUE)
+        return amount
 
 
 class IngredientRecipeSerializer(serializers.ModelSerializer):
@@ -222,11 +216,6 @@ class RecipeSerializer(RecipeBriefSerializer):
         if not ingredients:
             raise serializers.ValidationError(CANT_BE_EMPTY)
 
-        if not all(ingredient['amount'] >= AMOUNT_MIN_VALUE for ingredient in (
-            ingredients
-        )):
-            raise serializers.ValidationError(PROHIBITED_VALUE)
-
         ingredients_id = [ingredient['id'].id for ingredient in ingredients]
         if len(ingredients_id) != len(set(ingredients_id)):
             raise serializers.ValidationError(REPEATED)
@@ -243,19 +232,23 @@ class RecipeSerializer(RecipeBriefSerializer):
         return tags
 
     def create(self, validated_data):
-        """Добавляет рецепт в базу данных"""
+        """Добавляет рецепт в базу данных."""
         ingredients_data = validated_data.pop('ingredients', None)
         tags_data = validated_data.pop('tags', None)
 
         recipe = Recipe.objects.create(**validated_data)
         recipe.tags.set(tags_data)
 
-        for ingredient_data in ingredients_data:
-            IngredientRecipe.objects.create(
-                ingredient=ingredient_data['id'],
+        ingredient_objects = [
+            IngredientRecipe(
                 recipe=recipe,
+                ingredient=ingredient_data['id'],
                 amount=ingredient_data['amount']
             )
+            for ingredient_data in ingredients_data
+        ]
+        IngredientRecipe.objects.bulk_create(ingredient_objects)
+
         return recipe
 
     def update(self, instance, validated_data):
@@ -305,7 +298,10 @@ class SubscribtionSerializer(FgUserSerializer):
     """Сериализатор подписок пользователей."""
 
     recipes = serializers.SerializerMethodField()
-    recipes_count = serializers.SerializerMethodField()
+    recipes_count = serializers.IntegerField(
+        source='recipes.count',
+        read_only=True
+    )
 
     class Meta(FgUserSerializer.Meta):
         fields = FgUserSerializer.Meta.fields + ('recipes_count', 'recipes')
@@ -313,16 +309,12 @@ class SubscribtionSerializer(FgUserSerializer):
     def get_recipes(self, following):
         """Ограничивает количество выводимых рецептов, если recipes_limit."""
         recipes_limit = self.context.get('recipes_limit')
-        try:
-            recipes = following.recipes.all()[:int(recipes_limit)] if (
-                recipes_limit
-            ) else following.recipes.all()
-        except TypeError:
-            recipes = following.recipes.all()
+        recipes = following.recipes.all()
+        if recipes_limit:
+            try:
+                recipes = recipes[:int(recipes_limit)]
+            except (TypeError, ValueError):
+                pass
         return RecipeBriefSerializer(
             recipes, many=True, context=self.context
         ).data
-
-    def get_recipes_count(self, user):
-        """Подсчитывает количество рецептов пользователя."""
-        return len(user.recipes.all())

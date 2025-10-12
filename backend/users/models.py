@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 
 from core.text_utils import truncate_with_ellipsis
@@ -13,6 +14,16 @@ class FgUser(AbstractUser):
     avatar = models.ImageField(
         'Аватар', upload_to='avatars/', null=True, blank=True
     )
+    first_name = models.CharField('Имя', max_length=150)
+    last_name = models.CharField('Фамилия', max_length=150)
+    username = models.CharField(
+        'Логин',
+        max_length=150,
+        unique=True,
+        validators=(UnicodeUsernameValidator(),)
+    )
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ('username', 'first_name', 'last_name')
 
     class Meta:
         verbose_name = 'пользователь'

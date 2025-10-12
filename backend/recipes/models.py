@@ -1,7 +1,10 @@
 from django.contrib.auth import get_user_model
+from django.core.validators import MinValueValidator
 from django.db import models
 
-from core.constants import ALREADY_ADDED, ALREADY_ADDED_INGREDIENT
+from core.constants import (
+    ALREADY_ADDED, ALREADY_ADDED_INGREDIENT, COOKING_TIME_MIN_VALUE
+)
 from core.text_utils import truncate_with_ellipsis
 
 
@@ -9,14 +12,14 @@ User = get_user_model()
 
 
 class Ingredient(models.Model):
-    """Модель ингридиентов."""
+    """Модель ингредиентов."""
 
-    name = models.TextField('Название ингридиента', unique=True)
+    name = models.TextField('Название ингредиента', unique=True)
     measurement_unit = models.CharField('Единица измерения', max_length=20)
 
     class Meta:
-        verbose_name = 'ингридиент'
-        verbose_name_plural = 'Ингридиенты'
+        verbose_name = 'ингредиент'
+        verbose_name_plural = 'ингредиенты'
         default_related_name = 'ingridients'
         ordering = ('name',)
 
@@ -46,7 +49,7 @@ class Recipe(models.Model):
     author = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        verbose_name='Автор публикации'
+        verbose_name='Автор публикации',
     )
     name = models.CharField('Название', max_length=256)
     image = models.ImageField('Картинка', upload_to='recipe_image/')
@@ -63,7 +66,14 @@ class Recipe(models.Model):
         verbose_name='Тег',
         blank=False
     )
-    cooking_time = models.PositiveSmallIntegerField('Время приготовления')
+    cooking_time = models.PositiveSmallIntegerField(
+        verbose_name='Время приготовления в минутах',
+        validators=(MinValueValidator(
+            COOKING_TIME_MIN_VALUE,
+            message=f'Минимум {COOKING_TIME_MIN_VALUE}'
+        ),),
+        help_text='Время приготовления в минутах.'
+    )
     pub_date = models.DateTimeField('Дата публикации', auto_now_add=True)
 
     class Meta:
@@ -91,10 +101,9 @@ class IngredientRecipe(models.Model):
         verbose_name='Рецепт'
     )
 
-    def __str__(self) -> str:
-        return truncate_with_ellipsis(f'{self.ingredient} {self.recipe}')
-
     class Meta:
+        verbose_name = 'ингредиенты для рецепта'
+        verbose_name_plural = 'Ингредиенты рецептов'
         constraints = [
             models.UniqueConstraint(
                 fields=('ingredient', 'recipe'),
@@ -102,6 +111,9 @@ class IngredientRecipe(models.Model):
                 violation_error_message=ALREADY_ADDED_INGREDIENT
             )
         ]
+
+    def __str__(self) -> str:
+        return truncate_with_ellipsis(f'{self.ingredient} {self.recipe}')
 
 
 class Favorite(models.Model):
