@@ -83,6 +83,13 @@ class FgUserViewSet(UserViewSet):
             return super().get_serializer_class()
         return FgUserSerializer
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['recipes_limit'] = self.request.query_params.get(
+            'recipes_limit'
+        )
+        return context
+
     @action(
         detail=False,
         url_path='subscriptions',
@@ -91,18 +98,9 @@ class FgUserViewSet(UserViewSet):
         """Возвращает список подписок пользователя."""
         subscription_list = User.objects.filter(followers__user=request.user)
         page = self.paginate_queryset(subscription_list)
-        if page:
-            return self.get_paginated_response(
-                self.get_serializer(page, many=True).data
-            )
-        return Response(self.get_serializer(subscription_list, many=True).data)
-
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['recipes_limit'] = self.request.query_params.get(
-            'recipes_limit'
+        return self.get_paginated_response(
+            self.get_serializer(page, many=True).data
         )
-        return context
 
     def _add_to_selection(self):
         serializer = self.get_serializer(
