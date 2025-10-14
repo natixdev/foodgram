@@ -6,11 +6,13 @@ from djoser.serializers import UserSerializer
 from rest_framework import serializers
 
 from core.constants import (
-    AMOUNT_MIN_VALUE, CANT_ADD_FOLLOWING, CANT_BE_EMPTY,
-    COOKING_TIME_MIN_VALUE, FOLLOWING_VALIDATION, NON_EXISTENT_SUB,
-    PROHIBITED_VALUE, REPEATED
+    ALREADY_ADDED, AMOUNT_MIN_VALUE, CANT_ADD_FOLLOWING, CANT_BE_EMPTY,
+    FOLLOWING_VALIDATION, NON_EXISTENT_FAV,
+    NON_EXISTENT_SUB, NOT_ADDED, PROHIBITED_VALUE, REPEATED
 )
-from recipes.models import Ingredient, IngredientRecipe, Recipe, Tag
+from recipes.models import (
+    Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
+)
 from users.models import Follow
 
 
@@ -65,7 +67,7 @@ class FgUserWithRecipesSerializer(FgUserSerializer):
 class AvatarSerializer(UserSerializer):
     """Сериализатор аватара."""
 
-    avatar = Base64ImageField(required=True)
+    avatar = Base64ImageField()
 
     class Meta(UserSerializer.Meta):
         model = User
@@ -84,37 +86,39 @@ class FollowSerializer(serializers.ModelSerializer):
         slug_field='username',
         read_only=True
     )
-    following = serializers.SlugRelatedField(
-        slug_field='username',
+    following = serializers.PrimaryKeyRelatedField(
         read_only=True
     )
-    delete_num = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Follow
-        fields = ('user', 'following', 'delete_num')
+        fields = ('user', 'following')
 
     def validate(self, attrs):
         """Проверяет нет ли дублирования подписки и не подписка на себя."""
-        user = self.context.get('user')
-        following = self.context.get('following')
-        if Follow.objects.filter(user=user, following=following).exists():
-            raise serializers.ValidationError(CANT_ADD_FOLLOWING)
-        if following == user:
-            raise serializers.ValidationError(FOLLOWING_VALIDATION)
+        request = self.context['request']
+        user = request.user
+        following_id = request.resolver_match.kwargs.get('id')
+        action = request.method
+
+        if action == 'DELETE':
+            if not user.follows.filter(following__id=following_id).exists():
+                raise serializers.ValidationError(NON_EXISTENT_SUB)
+        else:
+            if Follow.objects.filter(user=user, following__id=following_id).exists():
+                raise serializers.ValidationError(CANT_ADD_FOLLOWING)
+            if following_id == user.id:
+                raise serializers.ValidationError(FOLLOWING_VALIDATION)
         return attrs
 
     def create(self, validated_data):
+        request = self.context['request']
+        user = request.user
+        following_id = request.resolver_match.kwargs.get('id')
         return Follow.objects.create(
-            user=self.context['user'],
-            following=self.context['following']
+            user=user,
+            following_id=following_id
         )
-
-    def validate_delete(self):
-        user = self.context['user']
-        following = self.context['following']
-        if not user.follows.filter(following=following).exists():
-            raise serializers.ValidationError(NON_EXISTENT_SUB)
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -205,18 +209,12 @@ class RecipeSerializer(RecipeBriefSerializer):
             recipe=obj
         ).exists()
 
-    def validate_cooking_time(self, minutes):
-        """Проверяет, что введенное время приготовления не меньше MIN_VALUE."""
-        if minutes < COOKING_TIME_MIN_VALUE:
-            raise serializers.ValidationError(PROHIBITED_VALUE)
-        return minutes
-
     def validate_ingredients(self, ingredients):
         """Проверяет количество и состав ингредиентов."""
         if not ingredients:
             raise serializers.ValidationError(CANT_BE_EMPTY)
 
-        ingredients_id = [ingredient['id'].id for ingredient in ingredients]
+        ingredients_id = [ingredient['id'] for ingredient in ingredients]
         if len(ingredients_id) != len(set(ingredients_id)):
             raise serializers.ValidationError(REPEATED)
 
@@ -286,12 +284,41 @@ class RecipeSerializer(RecipeBriefSerializer):
         return representation
 
 
-class AddToFavorite(serializers.ModelSerializer):
-    """Сериализатор добавления рецепта в избранное."""
+class SelectionSerializer(serializers.ModelSerializer):
+    """Сериализатор добавления рецепта в избранное/ список покупок."""
 
     class Meta:
         model = Recipe
         fields = ('id', 'name', 'image', 'cooking_time')
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = request.user
+        recipe_id = request.resolver_match.kwargs.get('id')
+        action = request.resolver_match.url_name
+        option = user.favorites if 'favorite' in action else user.shopping_cart
+
+        return option.create(user=user, recipe_id=recipe_id)
+
+    def validate(self, attrs):
+        """Проверка от дублирования рецепта в избранном/списке покупок."""
+        request = self.context.get('request')
+        user = request.user
+        recipe_id = request.resolver_match.kwargs.get('id')
+        action = request.resolver_match.url_name
+        model = Favorite if 'favorite' in action else ShoppingCart
+
+        if request.method == 'DELETE':
+            if not model.objects.filter(user=user, recipe__id=recipe_id).exists():
+                raise serializers.ValidationError(NON_EXISTENT_FAV.format(
+                    selection=model._meta.verbose_name.lower()
+                ))
+        else:
+            if model.objects.filter(user=user, recipe__id=recipe_id).exists():
+                raise serializers.ValidationError(ALREADY_ADDED.format(
+                    selection=model._meta.verbose_name.lower()
+                ))
+        return attrs
 
 
 class SubscribtionSerializer(FgUserSerializer):

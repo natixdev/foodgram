@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Sum
+from django.db.models import F, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -20,7 +20,7 @@ from .filters import IngredientFilter, RecipeFilter
 from .pagination import FgPagination
 from .permissions import AuthorOrAuthenticatedOrReadOnly
 from .serializers import (
-    AddToFavorite, AvatarSerializer, FgUserSerializer,
+    SelectionSerializer, AvatarSerializer, FgUserSerializer,
     FollowSerializer, IngredientListSerializer, RecipeSerializer,
     SubscribtionSerializer, TagSerializer
 )
@@ -28,6 +28,7 @@ from core.constants import ALREADY_ADDED, NON_EXISTENT_FAV, NOT_ADDED
 from recipes.models import (
     Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
 )
+from users.models import Follow
 
 
 User = get_user_model()
@@ -91,17 +92,13 @@ class FgUserViewSet(UserViewSet):
     )
     def get_subscriptions_list(self, request):
         """Возвращает список подписок пользователя."""
-        subscription_list = [
-            sub.following for sub in request.user.follows.all()
-        ]
+        subscription_list = User.objects.filter(followers__user=request.user)
         page = self.paginate_queryset(subscription_list)
         if page:
             return self.get_paginated_response(
                 self.get_serializer(page, many=True).data
             )
-        return Response(self.get_serializer(
-            subscription_list, many=True
-        ).data)
+        return Response(self.get_serializer(subscription_list, many=True).data)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -110,19 +107,10 @@ class FgUserViewSet(UserViewSet):
         )
         return context
 
-    @action(
-        detail=True,
-        methods=('post',),
-        url_path='subscribe'
-    )
-    def add_to_subscription(self, request, id=None):
-        """Реализует подписку на пользователя."""
-        context = self.get_serializer_context()
-        context.update({
-            'user': self.request.user,
-            'following': get_object_or_404(User, id=self.kwargs.get('id'))
-        })
-        serializer = self.get_serializer(data={}, context=context)
+    def _add_to_selection(self):
+        serializer = self.get_serializer(
+            data={}, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         follow = serializer.save()
 
@@ -135,23 +123,27 @@ class FgUserViewSet(UserViewSet):
             status=status.HTTP_201_CREATED
         )
 
+    def _delete_user_selection(self, id):
+        following = self.get_object()
+        serializer = self.get_serializer(data={})
+        serializer.is_valid(raise_exception=True)
+        self.request.user.follows.filter(following=following).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=True,
+        methods=('post',),
+        url_path='subscribe'
+    )
+    def add_to_subscription(self, request, id=None):
+        """Реализует подписку на пользователя."""
+        get_object_or_404(User, id=id)
+        return self._add_to_selection()
+
     @add_to_subscription.mapping.delete
     def delete_subscription(self, request, id=None):
         """Удаляет подписку на пользователя."""
-        serializer = self.get_serializer(
-            data={}, context=self.get_context_data()
-        )
-        serializer.validate_delete()
-        self.request.user.follows.filter(following=self.get_object()).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def get_context_data(self, **kwargs) -> dict[str, any]:
-        context = self.get_serializer_context()
-        context.update({
-            'user': self.request.user,
-            'following': get_object_or_404(User, id=self.kwargs.get('id'))
-        })
-        return context
+        return self._delete_user_selection(id)
 
 
 class IngredientViewSet(ReadOnlyModelViewSet):
@@ -219,78 +211,78 @@ class RecipeViewSet(ModelViewSet):
             )
         })
 
+    def _add_to_selection(self, request, id, model):
+        recipe = self.get_object()
+        serializer = self.get_serializer(data={
+            'id': recipe.id,
+            'name': recipe.name,
+            'image': recipe.image,
+            'cooking_time': recipe.cooking_time
+        })
+        serializer.is_valid(raise_exception=True)
+        selection_item = serializer.save()
+
+        response_serializer = self.get_serializer(
+            selection_item.recipe,
+            context=self.get_serializer_context()
+        )
+        return Response(
+            response_serializer.data,
+            status=status.HTTP_201_CREATED
+        )
+
+    def _delete_user_selection(self, request, id, model):
+        recipe = get_object_or_404(Recipe, id=id)
+        serializer = self.get_serializer(data={
+            'id': recipe.id,
+            'name': recipe.name,
+            'image': recipe.image,
+            'cooking_time': recipe.cooking_time
+        })
+        serializer.is_valid(raise_exception=True)
+        model.objects.filter(user=self.request.user, recipe=recipe).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(
         detail=True,
-        serializer_class=AddToFavorite,
+        serializer_class=SelectionSerializer,
         methods=('post',),
         url_path='favorite'
     )
     def add_to_favorite(self, request, id=None):
         """Добавление рецепта в избранное."""
-        recipe = self.get_object()
-        user = request.user
-        if user.favorites.filter(recipe=recipe).exists():
-            raise ValidationError(ALREADY_ADDED)
+        return self._add_to_selection(request, id, Favorite)
 
-        Favorite.objects.create(user=user, recipe=recipe)
-        return Response(
-            self.get_serializer(recipe).data,
-            status=status.HTTP_201_CREATED
-        )
-
-    @add_to_favorite.mapping.delete  # Лучше один метод с ветвлением мб?
+    @add_to_favorite.mapping.delete
     def delete_favorite(self, request, id=None):
         """Удаление рецепта из избранного."""
-        recipe = self.get_object()
-        user = request.user
-        delete_num, _ = user.favorites.filter(recipe=recipe).delete()
-        if delete_num > 0:
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        else:
-            raise ValidationError(NON_EXISTENT_FAV)
+        return self._delete_user_selection(request, id, Favorite)
 
     @action(
         detail=True,
-        serializer_class=AddToFavorite,
+        serializer_class=SelectionSerializer,
         methods=('post',),
         url_path='shopping_cart'
     )
     def add_to_shopping_cart(self, request, id=None):
         """Добавление рецепта в список покупок."""
-        recipe = self.get_object()
-        user = request.user
-        if user.shopping_cart.filter(recipe=recipe).exists():
-            raise ValidationError(ALREADY_ADDED)
+        return self._add_to_selection(request, id, ShoppingCart)
 
-        ShoppingCart.objects.create(user=user, recipe=recipe)
-        return Response(
-            self.get_serializer(recipe).data,
-            status=status.HTTP_201_CREATED
-        )
-
-    @add_to_shopping_cart.mapping.delete  # Лучше один метод с ветвлением мб?
+    @add_to_shopping_cart.mapping.delete
     def delete_from_shopping_cart(self, request, id=None):
         """Удаление рецепта из списка покупок."""
-        delete_num, _ = request.user.favorites.filter(
-            recipe=self.get_object()
-        ).delete()
-        if delete_num > 0:
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        else:
-            raise ValidationError(NOT_ADDED)
+        return self._delete_user_selection(request, id, ShoppingCart)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=('get',))
     def download_shopping_cart(self, request):
         """Скачивание списка покупок в формате TXT."""
         shopping_cart = self.get_queryset()
-        recipes = Recipe.objects.filter(
-            id__in=shopping_cart.values('id')
-        )
+        recipes = Recipe.objects.filter(id__in=shopping_cart.values('id'))
         ingredients = IngredientRecipe.objects.filter(
-            recipe__in=recipes
-        ).values(
-            'ingredient__name',
-            'ingredient__measurement_unit'
+            recipe__in=recipes.filter(in_shopping_cart__user=request.user)
+        ).values('recipe').values(
+            name=F('ingredient__name'),
+            measurement_unit=F('ingredient__measurement_unit')
         ).annotate(
             total_amount=Sum('amount')
         ).order_by('ingredient__name')
@@ -320,28 +312,30 @@ class RecipeViewSet(ModelViewSet):
         WIDTH = 50
         SCALE_WIDTH = 62
         BORDER = '═' * WIDTH
-        HEADING_PADDING = 45
+        HEADING_PADDING = 40
         LINE = '─' * WIDTH
-        DATE = current_date.strftime("%d.%m.%Y %H:%M")
+        DATE = current_date.strftime('%d.%m.%Y %H:%M')
+        user = user.get_full_name() or user.username
+        length = len(ingredients)
 
         text = f'╔{BORDER}╗\n'
         text += f'{TITLE:^{SCALE_WIDTH}}\n'
         text += f'╚{BORDER}╝\n\n'
 
-        text += f'{USER} {user.get_full_name() or user.username}\n'
+        text += f'{USER} {user}\n'
         text += f'{CREATED} {DATE}\n'
-        text += f'{TOTAL} {len(ingredients)}\n\n'
+        text += f'{TOTAL} {length}\n\n'
 
         # Шапка таблицы ингредиентов
         text += f'{PRODUCT}{"Кол-во":>{HEADING_PADDING}}\n'
         text += f' {LINE}\n'
 
         for ingredient in ingredients:
-            name = ingredient.get('ingredient__name')
-            unit = ingredient.get('ingredient__measurement_unit')
-            amount = ingredient.get('total_amount')
+            name = ingredient.get('name')
+            unit = ingredient.get('measurement_unit')
+            amount = int(ingredient.get('total_amount'))
 
-            amount_str = f'{int(amount)}' if amount == int(amount) else (
+            amount_str = str(amount) if amount == int(amount) else (
                 f'{amount:.1f}'
             )
 
@@ -349,7 +343,8 @@ class RecipeViewSet(ModelViewSet):
 
             # Обрезаем длинные названия ингредиентов
             max_name_length = 30
-            display_name = name[:max_name_length - 2] + '...' if (
+            cuted_name = name[:max_name_length - 2]
+            display_name = f'{cuted_name}...' if (
                 len(name) > max_name_length
             ) else name
 
@@ -358,11 +353,12 @@ class RecipeViewSet(ModelViewSet):
             quantity = amount_str
 
             # Вычисляем пробелы для выравнивания
-            total_width = 50
+            total_width = 45
             name_width = len(name_with_unit)
             spaces_needed = total_width - name_width
+            space = ' ' * spaces_needed
 
-            text += f'{name_with_unit}{" " * spaces_needed}{quantity}\n'
+            text += f'{name_with_unit}{space}{quantity}\n'
 
         text += f' {LINE}\n'
         text += 'Отмечайте ☑ купленные товары\n'
@@ -379,5 +375,5 @@ class RecipeViewSet(ModelViewSet):
 
 def short_link_redirect(request, pk):
     """Редирект по короткой ссылке."""
-    get_object_or_404(Recipe, pk=pk)
-    return redirect(reverse('recipes-detail', kwargs={'pk': pk}))
+    recipe = get_object_or_404(Recipe, pk=pk)
+    return redirect(reverse('recipes-detail', kwargs={'id': recipe.id}))

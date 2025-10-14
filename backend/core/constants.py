@@ -13,13 +13,13 @@ AMOUNT_MIN_VALUE = 1
 COOKING_TIME_MIN_VALUE = 1
 
 # Константы ошибок
-ALREADY_ADDED = 'Этот рецепт уже добавлен'
+ALREADY_ADDED = 'Этот рецепт уже добавлен в {selection}'
 ALREADY_ADDED_INGREDIENT = 'Этот ингредиент уже добавлен'
 CANT_ADD_FOLLOWING = 'Вы уже подписаны на этого пользователя.'
 CANT_BE_EMPTY = 'Обязательное поле.'
 FOLLOWING_VALIDATION = 'Нельзя подписаться на самого себя!'
 NOT_FOUND = 'Страница не найдена.'
-NON_EXISTENT_FAV = 'Рецепт не был добавлен в избранное'
+NON_EXISTENT_FAV = 'Рецепт не был добавлен в {selection}'
 NON_EXISTENT_SUB = 'Вы не подписаны на этого пользователя'
 NOT_ADDED = 'Рецепт не был добавлен в список покупок'
 PROHIBITED_VALUE = 'Не может быть меньше 1'
