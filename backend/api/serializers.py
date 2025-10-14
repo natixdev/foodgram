@@ -8,7 +8,7 @@ from rest_framework import serializers
 from core.constants import (
     ALREADY_ADDED, AMOUNT_MIN_VALUE, CANT_ADD_FOLLOWING, CANT_BE_EMPTY,
     FOLLOWING_VALIDATION, NON_EXISTENT_FAV,
-    NON_EXISTENT_SUB, NOT_ADDED, PROHIBITED_VALUE, REPEATED
+    NON_EXISTENT_SUB, PROHIBITED_VALUE, REPEATED
 )
 from recipes.models import (
     Favorite, Ingredient, IngredientRecipe, Recipe, ShoppingCart, Tag
@@ -105,7 +105,9 @@ class FollowSerializer(serializers.ModelSerializer):
             if not user.follows.filter(following__id=following_id).exists():
                 raise serializers.ValidationError(NON_EXISTENT_SUB)
         else:
-            if Follow.objects.filter(user=user, following__id=following_id).exists():
+            if Follow.objects.filter(
+                user=user, following__id=following_id
+            ).exists():
                 raise serializers.ValidationError(CANT_ADD_FOLLOWING)
             if following_id == user.id:
                 raise serializers.ValidationError(FOLLOWING_VALIDATION)
@@ -309,7 +311,9 @@ class SelectionSerializer(serializers.ModelSerializer):
         model = Favorite if 'favorite' in action else ShoppingCart
 
         if request.method == 'DELETE':
-            if not model.objects.filter(user=user, recipe__id=recipe_id).exists():
+            if not model.objects.filter(
+                user=user, recipe__id=recipe_id
+            ).exists():
                 raise serializers.ValidationError(NON_EXISTENT_FAV.format(
                     selection=model._meta.verbose_name.lower()
                 ))
