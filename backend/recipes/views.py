@@ -6,4 +6,5 @@ from .models import Recipe
 
 def short_link_redirect(request, pk):
     """Редирект по короткой ссылке."""
-    return redirect(reverse('api:recipe-detail', kwargs={'pk': recipe.pk}))
+    recipe = get_object_or_404(Recipe, pk=pk)
+    return redirect(reverse('api:recipes-detail', kwargs={'id': recipe.pk}))
