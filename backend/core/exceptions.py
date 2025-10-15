@@ -5,7 +5,7 @@ from core.constants import NOT_FOUND
 
 
 class NotFound(APIException):
-    """Переопределяет формат ответа для ошибки 404."""
+    """Переопределяет формат ответа для ошибки NOT_FOUND."""
 
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = NOT_FOUND

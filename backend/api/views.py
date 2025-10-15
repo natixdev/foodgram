@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db.models import F, Sum
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -29,6 +29,16 @@ from recipes.models import (
 
 
 User = get_user_model()
+
+
+class ReadonlyNonPaginated(ReadOnlyModelViewSet):
+    """
+    Базовый ViewSet для read_only моделей без пагинации.
+
+    Реализует общее поведение для Tag, Ingredients.
+    """
+
+    pagination_class = None
 
 
 class AvatarDetail(APIView):
@@ -65,14 +75,12 @@ class FgUserViewSet(UserViewSet):
     lookup_field = 'id'
 
     def get_permissions(self):
-        if self.action in {
+        return (IsAuthenticated(),) if self.action in {
             'get_subscriptions_list',
             'add_to_subscription',
             'delete_subscription',
             'me',
-        }:
-            return (IsAuthenticated(),)
-        return (AllowAny(),)
+        } else (AllowAny(),)
 
     def get_serializer_class(self):
         if self.action in {'add_to_subscription', 'delete_subscription'}:
@@ -89,18 +97,6 @@ class FgUserViewSet(UserViewSet):
             'recipes_limit'
         )
         return context
-
-    @action(
-        detail=False,
-        url_path='subscriptions',
-    )
-    def get_subscriptions_list(self, request):
-        """Возвращает список подписок пользователя."""
-        subscription_list = User.objects.filter(followers__user=request.user)
-        page = self.paginate_queryset(subscription_list)
-        return self.get_paginated_response(
-            self.get_serializer(page, many=True).data
-        )
 
     def _add_to_selection(self):
         serializer = self.get_serializer(
@@ -126,6 +122,18 @@ class FgUserViewSet(UserViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(
+        detail=False,
+        url_path='subscriptions',
+    )
+    def get_subscriptions_list(self, request):
+        """Возвращает список подписок пользователя."""
+        subscription_list = User.objects.filter(followers__user=request.user)
+        page = self.paginate_queryset(subscription_list)
+        return self.get_paginated_response(
+            self.get_serializer(page, many=True).data
+        )
+
+    @action(
         detail=True,
         methods=('post',),
         url_path='subscribe'
@@ -141,7 +149,7 @@ class FgUserViewSet(UserViewSet):
         return self._delete_user_selection(id)
 
 
-class IngredientViewSet(ReadOnlyModelViewSet):
+class IngredientViewSet(ReadonlyNonPaginated):
     """ViewSet класса Ingredient."""
 
     queryset = Ingredient.objects.all()
@@ -150,16 +158,14 @@ class IngredientViewSet(ReadOnlyModelViewSet):
         DjangoFilterBackend, filters.SearchFilter
     )
     filterset_class = IngredientFilter
-    pagination_class = None
     search_fields = ('^name',)
 
 
-class TagViewSet(ReadOnlyModelViewSet):
+class TagViewSet(ReadonlyNonPaginated):
     """ViewSet класса Tag."""
 
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    pagination_class = None
 
 
 class RecipeViewSet(ModelViewSet):
@@ -189,6 +195,16 @@ class RecipeViewSet(ModelViewSet):
             return (AuthorOrAuthenticatedOrReadOnly(),)
         return (IsAuthenticatedOrReadOnly(),)
 
+    def get_serializer_class(self):
+        if self.action in {
+            'add_to_favorite',
+            'delete_favorite',
+            'add_to_shopping_cart',
+            'delete_from_shopping_cart',
+        }:
+            return SelectionSerializer
+        return RecipeSerializer
+
     def perform_create(self, serializer):
         """Автоматически устанавливает пользователя при создании рецепта."""
         serializer.save(author=self.request.user)
@@ -202,7 +218,7 @@ class RecipeViewSet(ModelViewSet):
         recipe = self.get_object()
         return Response({
             'short-link': request.build_absolute_uri(
-                reverse('short-link', args=(recipe.id,))
+                reverse('recipes:short-link', args=(recipe.id,))
             )
         })
 
@@ -240,7 +256,6 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        serializer_class=SelectionSerializer,
         methods=('post',),
         url_path='favorite'
     )
@@ -255,7 +270,6 @@ class RecipeViewSet(ModelViewSet):
 
     @action(
         detail=True,
-        serializer_class=SelectionSerializer,
         methods=('post',),
         url_path='shopping_cart'
     )
@@ -274,7 +288,7 @@ class RecipeViewSet(ModelViewSet):
         shopping_cart = self.get_queryset()
         recipes = Recipe.objects.filter(id__in=shopping_cart.values('id'))
         ingredients = IngredientRecipe.objects.filter(
-            recipe__in=recipes.filter(in_shopping_cart__user=request.user)
+            recipe__in=recipes.filter(in_shoppingcart__user=request.user)
         ).values('recipe').values(
             name=F('ingredient__name'),
             measurement_unit=F('ingredient__measurement_unit')
@@ -366,9 +380,3 @@ class RecipeViewSet(ModelViewSet):
         text += f'{"Foodgram 2025":^{SCALE_WIDTH}}\n'
         text += f'{"Ваш помощник в мире рецептов":^{SCALE_WIDTH}}\n'
         return text
-
-
-def short_link_redirect(request, pk):
-    """Редирект по короткой ссылке."""
-    recipe = get_object_or_404(Recipe, pk=pk)
-    return redirect(reverse('recipes-detail', kwargs={'id': recipe.id}))

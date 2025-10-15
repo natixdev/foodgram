@@ -105,9 +105,7 @@ class FollowSerializer(serializers.ModelSerializer):
             if not user.follows.filter(following__id=following_id).exists():
                 raise serializers.ValidationError(NON_EXISTENT_SUB)
         else:
-            if Follow.objects.filter(
-                user=user, following__id=following_id
-            ).exists():
+            if user.follows.filter(following__id=following_id).exists():
                 raise serializers.ValidationError(CANT_ADD_FOLLOWING)
             if following_id == user.id:
                 raise serializers.ValidationError(FOLLOWING_VALIDATION)
@@ -207,7 +205,7 @@ class RecipeSerializer(RecipeBriefSerializer):
     def get_is_in_shopping_cart(self, obj):
         """Получает значение для флага is_in_shopping_cart."""
         fg_user = self.context.get('request').user
-        return fg_user.is_authenticated and fg_user.shopping_cart.filter(
+        return fg_user.is_authenticated and fg_user.shoppingcarts.filter(
             recipe=obj
         ).exists()
 
@@ -231,6 +229,15 @@ class RecipeSerializer(RecipeBriefSerializer):
             raise serializers.ValidationError(REPEATED)
         return tags
 
+    def _bulk_create_ingredients(self, recipe, ingredients_data):
+        IngredientRecipe.objects.bulk_create([
+            IngredientRecipe(
+                recipe=recipe,
+                ingredient=ingredient['id'],
+                amount=ingredient['amount']
+            ) for ingredient in ingredients_data
+        ])
+
     def create(self, validated_data):
         """Добавляет рецепт в базу данных."""
         ingredients_data = validated_data.pop('ingredients', None)
@@ -239,15 +246,7 @@ class RecipeSerializer(RecipeBriefSerializer):
         recipe = Recipe.objects.create(**validated_data)
         recipe.tags.set(tags_data)
 
-        ingredient_objects = [
-            IngredientRecipe(
-                recipe=recipe,
-                ingredient=ingredient_data['id'],
-                amount=ingredient_data['amount']
-            )
-            for ingredient_data in ingredients_data
-        ]
-        IngredientRecipe.objects.bulk_create(ingredient_objects)
+        self._bulk_create_ingredients(recipe, ingredients_data)
 
         return recipe
 
@@ -265,16 +264,9 @@ class RecipeSerializer(RecipeBriefSerializer):
         if ingredients_data:
             instance.ingredient_recipe.all().delete()
 
-            for ingredient_data in ingredients_data:
-                IngredientRecipe.objects.create(
-                    ingredient=ingredient_data['id'],
-                    recipe=instance,
-                    amount=ingredient_data['amount']
-                )
-        for data, value in validated_data.items():
-            setattr(instance, data, value)
-        instance.save()
-        return instance
+        self._bulk_create_ingredients(instance, ingredients_data)
+
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         """Добавляет информацию о тегах и ингредиентах в рецепте."""
@@ -298,7 +290,7 @@ class SelectionSerializer(serializers.ModelSerializer):
         user = request.user
         recipe_id = request.resolver_match.kwargs.get('id')
         action = request.resolver_match.url_name
-        option = user.favorites if 'favorite' in action else user.shopping_cart
+        option = user.favorites if 'favorite' in action else user.shoppingcarts
 
         return option.create(user=user, recipe_id=recipe_id)
 

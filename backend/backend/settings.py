@@ -101,7 +101,7 @@ DATABASES = {
 } if os.getenv('DB_SQLITE') else {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'HOST': os.getenv('DB_HOST', ''),
+        'HOST': os.getenv('DB_HOST', 'db'),
         'NAME': os.getenv('POSTGRES_DB', 'django'),
         'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
         'PORT': os.getenv('DB_PORT', 5432),

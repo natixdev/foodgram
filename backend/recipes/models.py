@@ -58,13 +58,11 @@ class Recipe(models.Model):
         Ingredient,
         through='IngredientRecipe',
         verbose_name='Список ингредиентов',
-        blank=False,
         related_name='recipes'
     )
     tags = models.ManyToManyField(
         Tag,
         verbose_name='Тег',
-        blank=False
     )
     cooking_time = models.PositiveSmallIntegerField(
         verbose_name='Время приготовления в минутах',
@@ -116,30 +114,42 @@ class IngredientRecipe(models.Model):
         return truncate_with_ellipsis(f'{self.ingredient} {self.recipe}')
 
 
-class Favorite(models.Model):
+class AbstractSelection(models.Model):
     """
-    Модель избранных рецептов пользователя.
+    Абстрактная модель для моделей Favorite и ShoppingCart.
 
-    - user (ForeignKey): Пользователь, который добавляет рецпт в избранное
-    - recipe (ForeignKey): Рецепт, который добавляют в избранное.
+    - user (FK): Пользователь, который добавляет рецпт в избранное.
+    - recipe (FK): Рецепт, который добавляют в избранное/список покупок.
     """
 
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         verbose_name='Пользователь',
-        related_name='favorites',
+        related_name='%(class)ss',
     )
     recipe = models.ForeignKey(
         Recipe,
         on_delete=models.CASCADE,
         verbose_name='Рецепт',
-        related_name='in_favorites',
+        related_name='in_%(class)s',
         blank=True,
         null=True
     )
 
     class Meta:
+        abstract = True
+
+    def __str__(self) -> str:
+        return truncate_with_ellipsis(
+            f'{self.user.username}: {self.recipe.name}'
+        )
+
+
+class Favorite(AbstractSelection):
+    """Модель избранных рецептов пользователя."""
+
+    class Meta(AbstractSelection.Meta):
         verbose_name = 'избранное'
         verbose_name_plural = 'Избранные рецепты'
         constraints = [
@@ -150,36 +160,11 @@ class Favorite(models.Model):
             )
         ]
 
-    def __str__(self) -> str:
-        return truncate_with_ellipsis(
-            f'{self.user.username}: {self.recipe.name}'
-        )
 
+class ShoppingCart(AbstractSelection):
+    """Модель покупок для рецептов."""
 
-class ShoppingCart(models.Model):
-    """
-    Модель покупок для рецептов.
-
-    - user: Пользователь, который добавляет рецепт в список покупок
-    - recipe: Рецепт, который добавляют в список покупок.
-    """
-
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        verbose_name='Пользователь',
-        related_name='shopping_cart'
-    )
-    recipe = models.ForeignKey(
-        Recipe,
-        on_delete=models.CASCADE,
-        verbose_name='Рецепт',
-        related_name='in_shopping_cart',
-        blank=True,
-        null=True
-    )
-
-    class Meta:
+    class Meta(AbstractSelection.Meta):
         verbose_name = 'список покупок'
         verbose_name_plural = 'Cписок покупок'
         constraints = [
@@ -189,8 +174,3 @@ class ShoppingCart(models.Model):
                 violation_error_message=ALREADY_ADDED
             )
         ]
-
-    def __str__(self) -> str:
-        return truncate_with_ellipsis(
-            f'{self.user.username}: {self.recipe.name}'
-        )

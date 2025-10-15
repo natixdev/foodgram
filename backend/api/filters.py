@@ -25,13 +25,13 @@ class RecipeFilter(FilterSet):
     def filter_is_favorited(self, queryset, name, is_favorited):
         """Дополнительная фильтрация, если установлен флаг is_favorited."""
         if is_favorited and self.request.user.is_authenticated:
-            return queryset.filter(in_favorites__user=self.request.user)
+            return queryset.filter(in_favorite__user=self.request.user)
         return queryset
 
     def filter_is_in_shopping_cart(self, queryset, name, is_in_shopping_cart):
         """Доп. фильтрация, если установлен флаг is_in_shopping_cart."""
         if is_in_shopping_cart and self.request.user.is_authenticated:
-            return queryset.filter(in_shopping_cart__user=self.request.user)
+            return queryset.filter(in_shoppingcart__user=self.request.user)
         return queryset
 
 

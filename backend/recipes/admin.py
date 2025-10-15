@@ -82,17 +82,17 @@ class RecipeAdmin(ImportExportModelAdmin):
         return queryset.annotate(favorites_count=Count('in_favorites'))
 
 
-@admin.register(Favorite)
-class FavoriteAdmin(ImportExportModelAdmin):
-    """Административный интерфейс для управления избранными рецептами."""
-
+class BaseSelectionAdmin(ImportExportModelAdmin):
+    """Базовый административный интерфейс для Favorite и ShoppingCart."""
     list_display = ('user', 'recipe')
     search_fields = ('user__username', 'recipe__name')
+
+
+@admin.register(Favorite)
+class FavoriteAdmin(BaseSelectionAdmin):
+    """Административный интерфейс для управления избранными рецептами."""
 
 
 @admin.register(ShoppingCart)
-class ShoppingCartAdmin(ImportExportModelAdmin):
+class ShoppingCartAdmin(BaseSelectionAdmin):
     """Административный интерфейс для управления списком покупок."""
-
-    list_display = ('user', 'recipe')
-    search_fields = ('user__username', 'recipe__name')
