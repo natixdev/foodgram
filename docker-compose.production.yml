@@ -6,7 +6,7 @@ volumes:
 services:
   # Контенер БД:
   db:
-    image: postgres:13
+    image: postgres:15-alpine
     env_file: .env
     volumes:
       - pg_data:/var/lib/postgresql/data
